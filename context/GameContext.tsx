@@ -1,21 +1,19 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
-import { Chess } from 'chess.js';
+import { Chess, Move as ChessMove } from 'chess.js'; // Assuming chess.js is installed
 import { TierLevel, TierConfig, GameState } from '../types';
-import { TIERS } from '../constants';
-import { supabase, submitMove } from '../lib/supabase'; // Using the real client now
+import { TIERS, STARTING_FEN } from '../constants';
+import { submitMove } from '../lib/supabase';
 
 interface GameContextType {
   currentTier: TierConfig | null;
-  selectTier: (tier: TierLevel) => Promise<void>; // Now returns a Promise
-  game: Chess;
+  selectTier: (tier: TierLevel) => void;
+  game: Chess; // Chess.js instance
   gameState: GameState;
   whiteTime: number;
   blackTime: number;
   makeMove: (from: string, to: string) => Promise<boolean>;
   resetGame: () => void;
-  playerColor: 'w' | 'b';
-  gameId: string | null; // Track the server Game ID
-  isLoading: boolean;    // Track network status
+  playerColor: 'w' | 'b'; // Simplified: User is always white for this demo
 }
 
 const GameContext = createContext<GameContextType | undefined>(undefined);
@@ -27,88 +25,44 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [blackTime, setBlackTime] = useState(0);
   const [playerColor] = useState<'w' | 'b'>('w');
   
-  // New State for Real-Money Mode
-  const [gameId, setGameId] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  
   const timerInterval = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Sync state helper
   const updateGameState = useCallback(() => {
-    setGame(new Chess(game.fen()));
+    setGame(new Chess(game.fen())); // Force re-render wrapper
   }, [game]);
 
-  const selectTier = async (tierId: TierLevel) => {
-    setIsLoading(true);
-    try {
-      const config = TIERS[tierId];
-
-      // 1. Map String Enum to Integer for DB (TIER_2 -> 2)
-      let dbTierId = 1;
-      if (tierId === TierLevel.TIER_2) dbTierId = 2;
-      if (tierId === TierLevel.TIER_3) dbTierId = 3;
-
-      // 2. If Paid Tier, Call Server to Buy In
-      if (dbTierId > 1) {
-         console.log(`Attempting to join Tier ${dbTierId}...`);
-         
-         const { data, error } = await supabase.functions.invoke('start-game', {
-            body: { tierId: dbTierId }
-         });
-
-         if (error) {
-             throw new Error(error.message || 'Failed to join game');
-         }
-
-         console.log('Game Created:', data);
-         setGameId(data.gameId);
-         // Ensure we start with the server's FEN (though usually standard start)
-         if (data.fen) {
-            setGame(new Chess(data.fen));
-         } else {
-            setGame(new Chess());
-         }
-      } else {
-         // Free Tier - Local Only
-         setGameId(null);
-         setGame(new Chess());
-      }
-
-      // 3. Setup Local State
-      setCurrentTier(config);
-      setWhiteTime(config.timeControl.initial);
-      setBlackTime(config.timeControl.initial);
-      
-    } catch (err: any) {
-      console.error("Buy-in failed:", err);
-      alert(`Transaction Failed: ${err.message}. Please check your balance.`);
-      setCurrentTier(null); // Reset selection on fail
-    } finally {
-      setIsLoading(false);
-    }
+  const selectTier = (tierId: TierLevel) => {
+    const config = TIERS[tierId];
+    setCurrentTier(config);
+    setWhiteTime(config.timeControl.initial);
+    setBlackTime(config.timeControl.initial);
+    const newGame = new Chess();
+    setGame(newGame);
   };
 
   const resetGame = () => {
-    // Note: In real money mode, "Reset" usually means "New Game" -> "New Buy-In"
-    // For now, we just clear the board and send them back to Tier Selection
+    if (currentTier) {
+      setWhiteTime(currentTier.timeControl.initial);
+      setBlackTime(currentTier.timeControl.initial);
+    }
+    const newGame = new Chess();
+    setGame(newGame);
     if (timerInterval.current) clearInterval(timerInterval.current);
-    setCurrentTier(null);
-    setGameId(null);
-    setGame(new Chess());
   };
 
   const makeMove = async (from: string, to: string): Promise<boolean> => {
     if (!currentTier) return false;
 
+    // 1. Optimistic Client Validation
     try {
-      // 1. Optimistic Client Validation
-      const moveResult = game.move({ from, to, promotion: 'q' });
+      const moveResult = game.move({ from, to, promotion: 'q' }); // Auto promote to queen for simplicity
       if (!moveResult) return false;
       
       updateGameState();
 
-      // 2. Handle Time Control
-      const isWhiteTurn = moveResult.color === 'w';
+      // 2. Handle Time Control (Increment)
+      const isWhiteTurn = moveResult.color === 'w'; // The move just made was by White
       const { increment, maxCap } = currentTier.timeControl;
       
       if (isWhiteTurn) {
@@ -118,12 +72,12 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       // 3. Server Validation (Tier 2 & 3)
-      if (currentTier.validation === 'server' && gameId) {
-         // Send move to server asynchronously
-         submitMove(gameId, { from, to }); 
+      if (currentTier.validation === 'server') {
+         // In a real app, await this. If fail, undo move.
+         submitMove('game-123', { from, to }); 
       }
 
-      // 4. Simulate Bot (Temporary Stub until we build the AI Edge Function)
+      // 4. Simulate Random Opponent Move (if playing vs computer stub)
       if (moveResult.color === playerColor && !game.isGameOver()) {
          setTimeout(() => {
             const moves = game.moves();
@@ -131,9 +85,10 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
                const randomMove = moves[Math.floor(Math.random() * moves.length)];
                game.move(randomMove);
                updateGameState();
+               // Apply Black Increment
                setBlackTime(prev => Math.min(prev + increment, maxCap));
             }
-         }, 500 + Math.random() * 1000);
+         }, 500 + Math.random() * 1000); // 0.5s - 1.5s thinking time
       }
       
       return true;
@@ -149,12 +104,13 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return;
     }
 
+    // Only run timer if game has started (history > 0)
     if (game.history().length > 0) {
       timerInterval.current = setInterval(() => {
         if (game.turn() === 'w') {
           setWhiteTime(prev => {
              if (prev <= 0.1) {
-                game.setGameOver(true);
+                game.setGameOver(true); // Simplified
                 return 0; 
              }
              return prev - 0.1;
@@ -180,7 +136,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     fen: game.fen(),
     turn: game.turn(),
     isGameOver: game.isGameOver(),
-    winner: game.isCheckmate() ? (game.turn() === 'w' ? 'b' : 'w') : null,
+    winner: game.isCheckmate() ? (game.turn() === 'w' ? 'b' : 'w') : null, // If turn is w and checkmate, b won
     history: game.history()
   };
 
@@ -194,9 +150,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       blackTime,
       makeMove,
       resetGame,
-      playerColor,
-      gameId,
-      isLoading
+      playerColor
     }}>
       {children}
     </GameContext.Provider>
