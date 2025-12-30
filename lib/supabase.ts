@@ -1,19 +1,12 @@
-// This is a stub for the Supabase client
+import { createClient } from '@supabase/supabase-js';
 import { Move } from '../types';
 
-const SUPABASE_URL = process.env.SUPABASE_URL || 'https://mock.supabase.co';
-const SUPABASE_KEY = process.env.SUPABASE_KEY || 'mock-key';
+// Access environment variables using Vite's import.meta.env
+const SUPABASE_URL = (import.meta as any).env?.VITE_SUPABASE_URL || 'https://mock.supabase.co';
+const SUPABASE_KEY = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || 'mock-key';
 
-// Mock Client
-export const supabase = {
-  auth: {
-    getUser: async () => ({ data: { user: { id: 'mock-user-123' } }, error: null }),
-  },
-  from: (table: string) => ({
-    select: () => ({ data: [], error: null }),
-    insert: () => ({ data: [], error: null }),
-  })
-};
+// Initialize the real Supabase client
+export const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 // Mock Server-Side Function (Edge Function Stub)
 export const submitMove = async (gameId: string, move: Move): Promise<{ valid: boolean; fen?: string; error?: string }> => {
