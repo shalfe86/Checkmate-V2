@@ -1,21 +1,30 @@
 import { createClient } from '@supabase/supabase-js';
-import { Move } from '../types';
+import { Database } from '../types/supabase'; // We will generate this later, but for now it's fine without
 
 // Access environment variables using Vite's import.meta.env
-const SUPABASE_URL = (import.meta as any).env?.VITE_SUPABASE_URL || 'https://mock.supabase.co';
-const SUPABASE_KEY = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || 'mock-key';
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-// Initialize the real Supabase client
-export const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+if (!supabaseUrl || !supabaseAnonKey) {
+  throw new Error('Missing Supabase Environment Variables');
+}
 
-// Mock Server-Side Function (Edge Function Stub)
-export const submitMove = async (gameId: string, move: Move): Promise<{ valid: boolean; fen?: string; error?: string }> => {
-  console.log(`[Server Stub] Validating move for Game ${gameId}: ${move.from} -> ${move.to}`);
-  
-  // Simulate network latency
-  await new Promise(resolve => setTimeout(resolve, 300));
+// The single, shared instance of the Supabase client
+export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-  // In a real app, we would validate against server-stored FEN
-  // For this stub, we return true to let the client optimistic UI proceed
-  return { valid: true };
+/**
+ * Helper to submit a move to our secure Edge Function.
+ * We will build the 'validate-move' function in a later step.
+ */
+export const submitMove = async (gameId: string, move: { from: string; to: string; promotion?: string }) => {
+  const { data, error } = await supabase.functions.invoke('validate-move', {
+    body: { gameId, move },
+  });
+
+  if (error) {
+    console.error('Edge Function Error:', error);
+    return { valid: false, error: error.message };
+  }
+
+  return data; // Should return { valid: true/false, fen: string }
 };
