@@ -5,8 +5,8 @@ import { TierLevel } from '../types';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { 
-  Trophy, Target, Zap, Shield, Crown, TrendingUp, 
-  Activity, Wallet, Lock, AlertTriangle, ArrowUpRight
+  Target, Zap, Shield, Crown, TrendingUp, 
+  Activity, Wallet, Lock, AlertTriangle
 } from 'lucide-react';
 
 export const Dashboard: React.FC = () => {
