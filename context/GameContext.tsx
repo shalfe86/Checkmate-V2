@@ -82,11 +82,20 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const logout = async () => {
-    await supabase.auth.signOut();
+    // 1. Optimistically clear local state immediately
+    // This ensures the UI updates to "Logged Out" state instantly
     setUser(null);
     setProfile(null);
     setWallet(null);
-    setCurrentTier(null); // Return to home on logout
+    setCurrentTier(null);
+    
+    try {
+      // 2. Perform the actual Supabase sign out
+      await supabase.auth.signOut();
+    } catch (error) {
+      console.error('Logout error:', error);
+      // Even if network fails, we've cleared local state, so user is effectively logged out of the UI
+    }
   };
 
   // Auth Listener
@@ -100,13 +109,21 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
 
     // Subscribe to auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       const currentUser = session?.user ?? null;
-      setUser(currentUser);
+      
+      // Only update if different to prevent loops/thrashing
+      // Note: Comparing objects directly in React state setters is tricky, 
+      // but checking ID is usually sufficient for auth users.
+      if (currentUser?.id !== user?.id) {
+          setUser(currentUser);
+      }
       
       if (currentUser) {
-        await fetchUserData(currentUser.id);
+        if (!profile) await fetchUserData(currentUser.id);
       } else {
+        // Ensure state is cleared on SIGNED_OUT event if it came from elsewhere
+        // (e.g. token expiration or multi-tab signout)
         setProfile(null);
         setWallet(null);
       }
@@ -115,7 +132,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => {
       subscription.unsubscribe();
     };
-  }, []);
+  }, [user, profile]); // Dependency on user/profile to avoid redundant fetches
 
   // Sync state helper - Clone via PGN to preserve history
   const updateGameState = useCallback(() => {
