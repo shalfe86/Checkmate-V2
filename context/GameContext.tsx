@@ -106,9 +106,16 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, []);
 
-  // Sync state helper
+  // Sync state helper - Clone via PGN to preserve history
   const updateGameState = useCallback(() => {
-    setGame(new Chess(game.fen()));
+    const newGame = new Chess();
+    try {
+      newGame.loadPgn(game.pgn());
+    } catch (e) {
+      // Fallback if PGN load fails (rare), usually means empty or custom position
+      newGame.load(game.fen());
+    }
+    setGame(newGame);
   }, [game]);
 
   const selectTier = (tierId: TierLevel) => {
@@ -178,27 +185,27 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Timer Logic
   useEffect(() => {
-    if (!currentTier || game.isGameOver()) {
+    // Check timeout manually since we removed setGameOver
+    const isTimeout = whiteTime <= 0 || blackTime <= 0;
+    
+    if (!currentTier || game.isGameOver() || isTimeout) {
       if (timerInterval.current) clearInterval(timerInterval.current);
       return;
     }
 
+    // Only run timer if game has started (history > 0)
     if (game.history().length > 0) {
+      if (timerInterval.current) clearInterval(timerInterval.current);
+      
       timerInterval.current = setInterval(() => {
         if (game.turn() === 'w') {
           setWhiteTime(prev => {
-             if (prev <= 0.1) {
-                game.setGameOver(true); 
-                return 0; 
-             }
+             if (prev <= 0.1) return 0; // Stop at 0
              return prev - 0.1;
           });
         } else {
           setBlackTime(prev => {
-            if (prev <= 0.1) {
-                game.setGameOver(true);
-                return 0;
-            }
+            if (prev <= 0.1) return 0; // Stop at 0
             return prev - 0.1;
           });
         }
@@ -208,13 +215,25 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => {
       if (timerInterval.current) clearInterval(timerInterval.current);
     };
-  }, [game, currentTier]);
+  }, [game, currentTier, whiteTime, blackTime]); // Added dependencies to catch timeout
+
+  // Calculate game state, including timeout logic
+  const isTimeout = whiteTime <= 0 || blackTime <= 0;
+  let winner = null;
+  
+  if (isTimeout) {
+    winner = whiteTime <= 0 ? 'b' : 'w';
+  } else if (game.isCheckmate()) {
+    winner = game.turn() === 'w' ? 'b' : 'w';
+  } else if (game.isDraw() || game.isStalemate() || game.isThreefoldRepetition() || game.isInsufficientMaterial()) {
+    winner = 'draw';
+  }
 
   const gameState: GameState = {
     fen: game.fen(),
     turn: game.turn(),
-    isGameOver: game.isGameOver(),
-    winner: game.isCheckmate() ? (game.turn() === 'w' ? 'b' : 'w') : null,
+    isGameOver: game.isGameOver() || isTimeout,
+    winner: winner as 'w' | 'b' | 'draw' | null,
     history: game.history()
   };
 
