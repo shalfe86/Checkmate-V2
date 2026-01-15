@@ -27,25 +27,31 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, defaultMo
     e.preventDefault();
     setLoading(true);
     setError(null);
+    
+    // Cast to any to bypass version mismatch type errors
+    const auth = supabase.auth as any;
 
     try {
       if (mode === 'signup') {
-        const { error } = await supabase.auth.signUp({ 
-          email, 
-          password,
-          options: {
+        const { error } = await auth.signUp(
+          { 
+            email, 
+            password,
+          },
+          {
             data: {
               full_name: fullName,
               address: address,
               role: 'player'
             }
           }
-        });
+        );
         if (error) throw error;
         alert('Registration successful! Check your email for the confirmation link.');
         onClose();
       } else {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        // Use v1 signIn method
+        const { error } = await auth.signIn({ email, password });
         if (error) throw error;
         onClose();
       }

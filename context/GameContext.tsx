@@ -1,24 +1,33 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
-import { Chess, Move as ChessMove } from 'chess.js'; // Assuming chess.js is installed
+import { Chess, Move as ChessMove } from 'chess.js';
 import { TierLevel, TierConfig, GameState } from '../types';
 import { TIERS, STARTING_FEN } from '../constants';
-import { submitMove } from '../lib/supabase';
+import { submitMove, supabase } from '../lib/supabase';
+
+// Supabase v1 compatibility types
+interface User {
+  id: string;
+  email?: string;
+  [key: string]: any;
+}
 
 interface GameContextType {
   currentTier: TierConfig | null;
   selectTier: (tier: TierLevel) => void;
-  game: Chess; // Chess.js instance
+  game: Chess;
   gameState: GameState;
   whiteTime: number;
   blackTime: number;
   makeMove: (from: string, to: string) => Promise<boolean>;
   resetGame: () => void;
-  playerColor: 'w' | 'b'; // Simplified: User is always white for this demo
+  playerColor: 'w' | 'b';
+  user: User | null;
 }
 
 const GameContext = createContext<GameContextType | undefined>(undefined);
 
 export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [user, setUser] = useState<User | null>(null);
   const [currentTier, setCurrentTier] = useState<TierConfig | null>(null);
   const [game, setGame] = useState(new Chess());
   const [whiteTime, setWhiteTime] = useState(0);
@@ -26,6 +35,28 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [playerColor] = useState<'w' | 'b'>('w');
   
   const timerInterval = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Auth Listener
+  useEffect(() => {
+    // Cast to any to handle potential version mismatches (v1 vs v2)
+    const auth = supabase.auth as any;
+
+    // Check initial session (supports v1 session())
+    const session = auth.session ? auth.session() : null;
+    setUser(session?.user ?? null);
+
+    // Listen for changes
+    const { data: authListener } = auth.onAuthStateChange((_event: string, session: any) => {
+      setUser(session?.user ?? null);
+    });
+
+    return () => {
+      // v1 returns { data: { unsubscribe: () => void } } or similar
+      if (authListener && typeof authListener.unsubscribe === 'function') {
+        authListener.unsubscribe();
+      }
+    };
+  }, []);
 
   // Sync state helper
   const updateGameState = useCallback(() => {
@@ -150,7 +181,8 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       blackTime,
       makeMove,
       resetGame,
-      playerColor
+      playerColor,
+      user
     }}>
       {children}
     </GameContext.Provider>
