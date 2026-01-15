@@ -12,27 +12,32 @@ export const Button: React.FC<ButtonProps> = ({
   size = 'md',
   ...props 
 }) => {
-  const baseStyles = "inline-flex items-center justify-center rounded-md font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-500 disabled:pointer-events-none disabled:opacity-50";
+  const baseStyles = "relative font-bold transition-all duration-200 focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50 group tracking-wide overflow-hidden active:scale-95";
   
   const variants = {
-    primary: "bg-yellow-500 text-slate-950 hover:bg-yellow-400 shadow-[0_0_10px_rgba(234,179,8,0.4)]",
-    secondary: "bg-slate-800 text-slate-100 hover:bg-slate-700 border border-slate-700",
-    outline: "border-2 border-yellow-500/50 text-yellow-500 hover:bg-yellow-500/10",
-    ghost: "text-slate-400 hover:text-yellow-500 hover:bg-slate-900",
+    primary: "bg-white text-black hover:bg-slate-200 shadow-[0_0_25px_-5px_rgba(255,255,255,0.4)] border border-transparent",
+    secondary: "bg-slate-800 text-slate-100 hover:bg-slate-700 border border-slate-700/50 shadow-lg",
+    outline: "bg-transparent border border-white/20 text-white hover:bg-white/5 hover:border-white/40 backdrop-blur-sm",
+    ghost: "text-slate-400 hover:text-white hover:bg-white/5",
   };
 
   const sizes = {
-    sm: "h-8 px-3 text-xs",
-    md: "h-10 px-4 py-2 text-sm",
-    lg: "h-12 px-8 text-lg",
+    sm: "h-9 px-4 text-[10px] rounded-lg uppercase",
+    md: "h-12 px-6 text-xs rounded-xl uppercase",
+    lg: "h-14 px-8 text-sm rounded-xl uppercase",
   };
+
+  // Special Gold Variant Override for specific marketing uses
+  if (className.includes('gold-btn')) {
+     variants.primary = "bg-gradient-to-b from-[#FCEda3] via-[#D4AF37] to-[#996515] text-black border-none shadow-[0_0_30px_rgba(212,175,55,0.4)] hover:shadow-[0_0_50px_rgba(212,175,55,0.6)] hover:brightness-110";
+  }
 
   return (
     <button 
       className={`${baseStyles} ${variants[variant]} ${sizes[size]} ${className}`} 
       {...props}
     >
-      {children}
+      <span className="relative z-10 flex items-center justify-center gap-2">{children}</span>
     </button>
   );
 };
