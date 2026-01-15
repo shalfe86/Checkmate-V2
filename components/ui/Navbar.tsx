@@ -70,13 +70,14 @@ export const Navbar: React.FC = () => {
                  </span>
               </div>
 
-              {/* Logout */}
+              {/* Logout - Desktop */}
               <button 
                 onClick={() => logout()}
-                className="p-2 hover:bg-red-500/20 rounded-full text-slate-500 hover:text-red-400 transition-colors"
+                className="hidden md:flex items-center gap-2 px-4 py-1.5 bg-white/5 hover:bg-red-500/10 border border-transparent hover:border-red-500/20 rounded-full text-slate-400 hover:text-red-400 transition-all group"
                 title="Logout"
               >
-                <LogOut size={16} />
+                <LogOut size={14} className="group-hover:-translate-x-0.5 transition-transform" />
+                <span className="text-xs font-bold uppercase tracking-wider">Logout</span>
               </button>
             </div>
           ) : (
