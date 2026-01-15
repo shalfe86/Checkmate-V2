@@ -42,7 +42,7 @@ export interface UserProfile {
   username: string;
   country_code?: string;
   avatar_url?: string;
-  role?: string;
+  role?: 'user' | 'admin' | 'moderator';
 }
 
 export interface Wallet {

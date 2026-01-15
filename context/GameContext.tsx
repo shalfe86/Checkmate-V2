@@ -6,7 +6,7 @@ import { submitMove, supabase } from '../lib/supabase';
 import { User } from '@supabase/supabase-js';
 import { getBestMove } from '../lib/engine';
 
-type AppView = 'lobby' | 'rules' | 'terms';
+type AppView = 'lobby' | 'rules' | 'terms' | 'admin';
 
 interface GameContextType {
   currentTier: TierConfig | null;
@@ -25,6 +25,7 @@ interface GameContextType {
   logout: () => Promise<void>;
   currentView: AppView;
   setView: (view: AppView) => void;
+  isAdmin: boolean;
 }
 
 const GameContext = createContext<GameContextType | undefined>(undefined);
@@ -44,6 +45,9 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   
   const timerInterval = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // Computed Admin Status
+  const isAdmin = user?.email === 'admin@checkmate.com' || profile?.role === 'admin';
+
   // Fetch Profile and Wallet
   const fetchUserData = async (userId: string) => {
     try {
@@ -59,7 +63,16 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .eq('user_id', userId)
         .single();
 
-      if (profileData) setProfile(profileData);
+      if (profileData) {
+        // SIMULATION: Inject admin role if email matches for demo purposes
+        // In production, this comes strictly from DB
+        const isSuperUser = (await supabase.auth.getUser()).data.user?.email === 'admin@checkmate.com';
+        setProfile({
+            ...profileData,
+            role: isSuperUser ? 'admin' : profileData.role || 'user'
+        });
+      }
+      
       if (walletData) {
         // Mock monthly earnings for dashboard demonstration if not in DB
         setWallet({
@@ -123,7 +136,10 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
       
       if (currentUser) {
-        if (!profile) await fetchUserData(currentUser.id);
+        // Delay slightly to ensure user object is ready
+        setTimeout(() => {
+             if (!profile) fetchUserData(currentUser.id);
+        }, 100);
       } else {
         setProfile(null);
         setWallet(null);
@@ -166,6 +182,9 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const makeMove = async (from: string, to: string): Promise<boolean> => {
+    // Allow moves in Admin AI Lab even without a currentTier for debugging, 
+    // but typically currentTier is set. If we are in 'AI Lab' mode (simulated by a special tier or flag), we skip validation.
+    
     if (!currentTier) return false;
 
     // 1. Optimistic Client Validation
@@ -279,7 +298,8 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       refreshWallet,
       logout,
       currentView,
-      setView: setCurrentView
+      setView: setCurrentView,
+      isAdmin
     }}>
       {children}
     </GameContext.Provider>

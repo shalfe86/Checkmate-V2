@@ -110,12 +110,6 @@ const OPENING_BOOK: string[][] = [
 // HELPERS
 // ==========================================
 
-const getSquareXY = (square: string): { x: number, y: number } => {
-  const file = square.charCodeAt(0) - 97; // 'a' -> 0
-  const rank = 8 - parseInt(square[1]); // '8' -> 0 (top of array)
-  return { x: file, y: rank };
-};
-
 const countMaterial = (game: Chess): number => {
   let score = 0;
   const board = game.board();
@@ -143,16 +137,7 @@ const countMaterial = (game: Chess): number => {
         case 'k': pstTable = isEndgame ? PST.k_end : PST.k_mid; break;
       }
 
-      // Flip PST for Black (if we are evaluating white's board, black is at bottom rank 7)
-      // Standard PSTs above are for White starting at rank 6,7 (bottom indices) moving to 0,1.
-      // Array index 0 is rank 8. Array index 7 is rank 1.
-      // If piece is white: use index r.
-      // If piece is black: use index 7-r.
-      // Columns are symmetric usually, but let's stick to direct mapping.
-      
       const rankIdx = piece.color === 'w' ? r : 7 - r;
-      // Mirror column for black to handle asymmetric tables (like King safety) correctly if needed
-      // But above tables are symmetric horizontally mostly. Let's just use c.
       pstValue = pstTable[rankIdx][c];
 
       if (piece.color === 'w') {
@@ -166,25 +151,26 @@ const countMaterial = (game: Chess): number => {
 };
 
 // ==========================================
-// ENGINE CORE
+// PUBLIC ENGINE API
 // ==========================================
+
+export const evaluatePosition = (game: Chess): number => {
+    return countMaterial(game);
+};
 
 export const getBestMove = (game: Chess, tierId?: TierLevel): string | null => {
   // 1. OPENING BOOK CHECK
   const history = game.history();
   if (history.length < 10) {
     for (const line of OPENING_BOOK) {
-      // Check if current history matches the start of a book line
       const isMatch = history.every((move, i) => move === line[i]);
       if (isMatch && line.length > history.length) {
-         // Found a book move
-         return line[history.length]; // Return next move in SAN
+         return line[history.length]; 
       }
     }
   }
 
   // 2. SEARCH CONFIG
-  // Dynamic depth based on Tier or game phase
   let depth = MAX_DEPTH;
   if (tierId === TierLevel.TIER_1) depth = 2; // Slightly easier for practice
   
@@ -194,12 +180,10 @@ export const getBestMove = (game: Chess, tierId?: TierLevel): string | null => {
 
   // 3. MINIMAX ROOT
   const isMaximizing = game.turn() === 'w';
-  
-  // Generate moves (verbose for sorting)
   const moves = game.moves({ verbose: true });
   if (moves.length === 0) return null;
 
-  // Optimistic Move Ordering: Captures > Promotions > Checks > Rest
+  // Optimistic Move Ordering
   moves.sort((a, b) => {
     let scoreA = 0;
     let scoreB = 0;
@@ -219,7 +203,6 @@ export const getBestMove = (game: Chess, tierId?: TierLevel): string | null => {
   let alpha = -Infinity;
   let beta = Infinity;
 
-  // Iterate root moves
   for (const move of moves) {
     game.move(move);
     const value = minimax(game, depth - 1, alpha, beta, !isMaximizing);
@@ -242,7 +225,6 @@ export const getBestMove = (game: Chess, tierId?: TierLevel): string | null => {
     if (beta <= alpha) break;
   }
 
-  // Return SAN or verbose
   return bestMove.san;
 };
 
@@ -253,16 +235,12 @@ const minimax = (
   beta: number, 
   isMaximizing: boolean
 ): number => {
-  // Base case: Depth 0 or Game Over
   if (depth === 0) {
-    return evaluateBoard(game); 
-    // Ideally use quiescence search here for captures, but depth 3 is usually stable enough for frontend
-    // Adding simple quiescence significantly slows down JS without typed arrays optimization
+    return evaluatePosition(game); 
   }
 
   if (game.isGameOver()) {
     if (game.isCheckmate()) {
-       // Prefer faster mates
        return isMaximizing ? -20000 - depth : 20000 + depth;
     }
     return 0; // Draw
@@ -270,8 +248,6 @@ const minimax = (
 
   const moves = game.moves({ verbose: true });
   
-  // Move Ordering for inner nodes (crucial for alpha-beta pruning speed)
-  // Simplified sorting
   moves.sort((a, b) => {
     let scoreA = 0, scoreB = 0;
     if (a.captured) scoreA = 10;
@@ -302,8 +278,4 @@ const minimax = (
     }
     return minEval;
   }
-};
-
-const evaluateBoard = (game: Chess): number => {
-    return countMaterial(game);
 };
