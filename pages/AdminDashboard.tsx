@@ -14,17 +14,21 @@ import {
 type AdminTab = 'overview' | 'users' | 'financials' | 'security' | 'ai-lab';
 
 export const AdminDashboard: React.FC = () => {
-  const { user, isAdmin, setView, selectTier, game, gameState } = useGame();
+  const { user, isAdmin, selectTier, game, gameState } = useGame();
   const [activeTab, setActiveTab] = useState<AdminTab>('overview');
 
   // AI Lab State
-  const [aiLabEval, setAiLabEval] = useState<number>(0);
   const [aiLabTier, setAiLabTier] = useState<TierLevel>(TierLevel.TIER_3);
 
-  if (!user || !isAdmin) {
+  // If mock/bypass mode is active, user might be null but isAdmin true in context override
+  if (!isAdmin) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-black text-red-500 font-mono">
-        ACCESS DENIED. AUTHORIZATION LEVEL INSUFFICIENT.
+      <div className="min-h-screen flex items-center justify-center bg-black text-red-500 font-mono p-4 text-center">
+        <div>
+          <ShieldAlert size={48} className="mx-auto mb-4" />
+          <h1 className="text-2xl font-bold">ACCESS DENIED</h1>
+          <p className="mt-2 text-sm text-red-400">Authorization Level Insufficient.</p>
+        </div>
       </div>
     );
   }
@@ -38,19 +42,12 @@ export const AdminDashboard: React.FC = () => {
     { id: '5', username: 'Suspect_Zero', email: 'hack@elite.net', balance: 1200.00, winRate: 98, status: 'Suspended' }
   ];
 
-  const MOCK_PAYOUTS = [
-    { id: 'tx_1', user: 'ChessKing99', amount: 50.00, date: '2023-10-24 14:30', status: 'Completed' },
-    { id: 'tx_2', user: 'DeepBlue_v2', amount: 850.00, date: '2023-10-24 12:15', status: 'Pending Review' },
-    { id: 'tx_3', user: 'Suspect_Zero', amount: 120.00, date: '2023-10-23 09:45', status: 'Held' }
-  ];
-
   // Helper to start AI Lab Game
   const startAiLab = (tier: TierLevel) => {
     setAiLabTier(tier);
-    selectTier(tier); // Uses context to reset board and set tier config
+    selectTier(tier); 
   };
 
-  // Render Functions for Tabs
   const renderOverview = () => (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -119,7 +116,7 @@ export const AdminDashboard: React.FC = () => {
                 <span className="text-[10px] bg-green-500/20 text-green-400 px-2 py-0.5 rounded-full border border-green-500/30">OPERATIONAL</span>
              </div>
              <div className="p-6 flex items-center justify-center h-full text-slate-500 font-mono text-xs">
-                [GRAPH_PLACEHOLDER: Latency &lt; 45ms]
+                Latency &lt; 45ms
              </div>
           </Card>
           <Card className="bg-slate-900 border-white/10 h-64">
@@ -207,7 +204,7 @@ export const AdminDashboard: React.FC = () => {
              <h3 className="text-xl font-orbitron font-bold text-white">SECURITY OVERVIEW</h3>
              <p className="text-slate-400 text-sm mt-1 max-w-2xl">
                 Automatic heuristic analysis has flagged <strong>2 accounts</strong> for review. These accounts exhibit 
-                statistically improbable performance (Computer Aggregation Score {'>'} 95%).
+                statistically improbable performance (Computer Aggregation Score &gt; 95%).
              </p>
           </div>
        </div>
@@ -336,10 +333,10 @@ export const AdminDashboard: React.FC = () => {
                   <ShieldAlert size={32} /> COMMAND CENTER
                </h1>
                <p className="text-slate-500 text-sm font-mono mt-1">
-                  ADMINISTRATOR: {user.email} | ID: {user.id.substring(0,8)}
+                  ADMINISTRATOR: {user?.email || 'MOCK_ADMIN'} | ID: {user?.id?.substring(0,8) || '0000'}
                </p>
             </div>
-            <div className="flex gap-1 bg-white/5 p-1 rounded-lg">
+            <div className="flex gap-1 bg-white/5 p-1 rounded-lg overflow-x-auto">
                {[
                  { id: 'overview', icon: Activity, label: 'Overview' },
                  { id: 'users', icon: Users, label: 'Users' },
@@ -350,7 +347,7 @@ export const AdminDashboard: React.FC = () => {
                   <button
                     key={tab.id}
                     onClick={() => setActiveTab(tab.id as AdminTab)}
-                    className={`flex items-center gap-2 px-4 py-2 rounded text-xs font-bold uppercase transition-all ${
+                    className={`flex items-center gap-2 px-4 py-2 rounded text-xs font-bold uppercase transition-all whitespace-nowrap ${
                        activeTab === tab.id 
                        ? 'bg-red-600 text-white shadow-lg shadow-red-900/20' 
                        : 'text-slate-400 hover:text-white hover:bg-white/5'

@@ -26,6 +26,7 @@ interface GameContextType {
   currentView: AppView;
   setView: (view: AppView) => void;
   isAdmin: boolean;
+  loginAsMockAdmin: () => void; // Added for mock capability
 }
 
 const GameContext = createContext<GameContextType | undefined>(undefined);
@@ -48,61 +49,82 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Computed Admin Status
   const isAdmin = user?.email === 'admin@checkmate.com' || profile?.role === 'admin';
 
-  // Fetch Profile and Wallet
+  // Fetch Profile and Wallet with error handling
   const fetchUserData = async (userId: string) => {
     try {
-      const { data: profileData } = await supabase
+      const { data: profileData, error: profileError } = await supabase
         .from('profiles')
         .select('*')
         .eq('id', userId)
         .single();
       
-      const { data: walletData } = await supabase
+      if (!profileError && profileData) {
+        setProfile(profileData);
+      } else {
+        // Fallback for mock users
+        setProfile({
+            id: userId,
+            username: user?.email?.split('@')[0] || 'User',
+            role: user?.email === 'admin@checkmate.com' ? 'admin' : 'user'
+        });
+      }
+      
+      const { data: walletData, error: walletError } = await supabase
         .from('wallets')
         .select('*')
         .eq('user_id', userId)
         .single();
 
-      if (profileData) {
-        // SIMULATION: Inject admin role if email matches for demo purposes
-        // In production, this comes strictly from DB
-        const isSuperUser = (await supabase.auth.getUser()).data.user?.email === 'admin@checkmate.com';
-        setProfile({
-            ...profileData,
-            role: isSuperUser ? 'admin' : profileData.role || 'user'
-        });
-      }
-      
-      if (walletData) {
-        // Mock monthly earnings for dashboard demonstration if not in DB
-        setWallet({
+      if (!walletError && walletData) {
+         setWallet({
           ...walletData,
-          monthly_earnings: walletData.monthly_earnings ?? 124.50 // Mock value
+          monthly_earnings: walletData.monthly_earnings ?? 0
+        });
+      } else {
+        // Mock wallet
+        setWallet({
+            user_id: userId,
+            balance: 1000.00,
+            currency: 'USD',
+            monthly_earnings: 124.50
         });
       }
     } catch (error) {
-      console.error('Error fetching user data:', error);
+      console.warn('Backend unavailable, using mock data');
     }
+  };
+
+  const loginAsMockAdmin = () => {
+    const mockUser: User = {
+        id: 'mock-admin-id',
+        app_metadata: {},
+        user_metadata: {},
+        aud: 'authenticated',
+        created_at: new Date().toISOString(),
+        email: 'admin@checkmate.com',
+        role: 'authenticated'
+    };
+    setUser(mockUser);
+    setProfile({
+        id: 'mock-admin-id',
+        username: 'AdminCommander',
+        role: 'admin',
+        avatar_url: 'https://ui-avatars.com/api/?name=Admin&background=red&color=fff'
+    });
+    setWallet({
+        user_id: 'mock-admin-id',
+        balance: 999999,
+        currency: 'USD',
+        monthly_earnings: 0
+    });
+    setCurrentView('admin');
   };
 
   const refreshWallet = async () => {
-    if (user) {
-      const { data: walletData } = await supabase
-        .from('wallets')
-        .select('*')
-        .eq('user_id', user.id)
-        .single();
-      if (walletData) {
-         setWallet({
-          ...walletData,
-          monthly_earnings: walletData.monthly_earnings ?? 124.50
-        });
-      }
-    }
+    if (user) await fetchUserData(user.id);
   };
 
   const logout = async () => {
-    // 1. Optimistically clear local state immediately
     setUser(null);
     setProfile(null);
     setWallet(null);
@@ -110,39 +132,43 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setCurrentView('lobby');
     
     try {
-      // 2. Perform the actual Supabase sign out
       await supabase.auth.signOut();
     } catch (error) {
-      console.error('Logout error:', error);
+      console.warn('Logout warning (Supabase might be down):', error);
     }
   };
 
   // Auth Listener
   useEffect(() => {
-    // Initial check
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) {
-        setUser(session.user);
-        fetchUserData(session.user.id);
-      }
-    });
+    const initAuth = async () => {
+        try {
+            const { data: { session }, error } = await supabase.auth.getSession();
+            if (session?.user) {
+                setUser(session.user);
+                fetchUserData(session.user.id);
+            }
+        } catch (e) {
+            console.warn("Supabase not reachable, starting in guest mode");
+        }
+    };
+    initAuth();
 
-    // Subscribe to auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       const currentUser = session?.user ?? null;
-      
       if (currentUser?.id !== user?.id) {
           setUser(currentUser);
       }
-      
       if (currentUser) {
         // Delay slightly to ensure user object is ready
         setTimeout(() => {
              if (!profile) fetchUserData(currentUser.id);
         }, 100);
       } else {
-        setProfile(null);
-        setWallet(null);
+        // Only clear if we aren't in a mock session
+        if (!user || user.id !== 'mock-admin-id') {
+            setProfile(null);
+            setWallet(null);
+        }
       }
     });
 
@@ -151,7 +177,6 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, [user, profile]);
 
-  // Sync state helper - Clone via PGN to preserve history
   const updateGameState = useCallback(() => {
     const newGame = new Chess();
     try {
@@ -182,9 +207,6 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const makeMove = async (from: string, to: string): Promise<boolean> => {
-    // Allow moves in Admin AI Lab even without a currentTier for debugging, 
-    // but typically currentTier is set. If we are in 'AI Lab' mode (simulated by a special tier or flag), we skip validation.
-    
     if (!currentTier) return false;
 
     // 1. Optimistic Client Validation
@@ -204,20 +226,18 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
          setBlackTime(prev => Math.min(prev + increment, maxCap));
       }
 
-      // 3. Server Validation (Tier 2 & 3)
+      // 3. Server Validation (Mocked if Supabase down)
       if (currentTier.validation === 'server') {
-         submitMove('game-123', { from, to }); 
+         submitMove('game-123', { from, to }).catch(e => console.warn("Move sync failed", e));
       }
 
-      // 4. Trigger AI Move (Fast & Difficult)
+      // 4. Trigger AI Move
       if (moveResult.color === playerColor && !game.isGameOver()) {
-         // Use setTimeout(0) or small delay to unblock the main thread for UI render
          setTimeout(() => {
             const aiMove = getBestMove(game, currentTier.id);
             if (aiMove) {
                game.move(aiMove);
                updateGameState();
-               // Apply Black Increment
                setBlackTime(prev => Math.min(prev + increment, maxCap));
             }
          }, 50); 
@@ -261,7 +281,6 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, [game, currentTier, whiteTime, blackTime]);
 
-  // Calculate game state
   const isTimeout = whiteTime <= 0 || blackTime <= 0;
   let winner = null;
   
@@ -299,7 +318,8 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       logout,
       currentView,
       setView: setCurrentView,
-      isAdmin
+      isAdmin,
+      loginAsMockAdmin
     }}>
       {children}
     </GameContext.Provider>

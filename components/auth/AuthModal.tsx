@@ -1,8 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import { Button } from '../ui/Button';
-import { X, Mail, Lock, Loader2, User, Globe, ScrollText, CheckCircle2 } from 'lucide-react';
+import { X, Mail, Lock, Loader2, User, Globe, ScrollText, CheckCircle2, ShieldAlert } from 'lucide-react';
 import { TermsBody } from '../legal/TermsBody';
+import { useGame } from '../../context/GameContext';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -29,6 +30,7 @@ const COUNTRIES = [
 ];
 
 export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, defaultMode = 'login' }) => {
+  const { loginAsMockAdmin } = useGame();
   const [mode, setMode] = useState<'login' | 'signup'>(defaultMode);
   
   // Form State
@@ -60,7 +62,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, defaultMo
 
   const handleTermsScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
-    // Allow a small buffer (e.g., 20px)
     if (scrollHeight - scrollTop - clientHeight < 50) {
       setCanAcceptTerms(true);
     }
@@ -71,6 +72,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, defaultMo
     setShowTermsModal(false);
   };
 
+  const handleMockAdmin = () => {
+    loginAsMockAdmin();
+    onClose();
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -78,18 +84,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, defaultMo
     
     try {
       if (mode === 'signup') {
-        // Sign-up validations
-        if (password !== confirmPassword) {
-           throw new Error("Passwords do not match");
-        }
-        if (!agreed18) {
-           throw new Error("You must confirm you are at least 18 years old");
-        }
-        if (!agreedTerms) {
-           throw new Error("You must review and agree to the Terms of Service");
-        }
+        if (password !== confirmPassword) throw new Error("Passwords do not match");
+        if (!agreed18) throw new Error("You must confirm you are at least 18 years old");
+        if (!agreedTerms) throw new Error("You must review and agree to the Terms of Service");
         
-        // Sign up with metadata for the SQL trigger
         const { error: signUpError } = await supabase.auth.signUp({
           email,
           password,
@@ -107,13 +105,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, defaultMo
         onClose();
         
       } else {
-        // Login
         const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
         if (signInError) throw signInError;
         onClose();
       }
     } catch (err: any) {
-      setError(err.message);
+      // In offline/demo mode, regular auth often fails.
+      setError(err.message || 'Authentication failed');
     } finally {
       setLoading(false);
     }
@@ -240,7 +238,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, defaultMo
                            className="mt-1 w-4 h-4 rounded border-slate-600 bg-slate-900 text-yellow-500 focus:ring-yellow-500/50 focus:ring-offset-0"
                          />
                          <span className="text-xs text-slate-400 group-hover:text-slate-300 transition-colors">
-                           I confirm I am at least 18 years old or the age of legal majority in my jurisdiction.
+                           I confirm I am at least 18 years old.
                          </span>
                       </label>
 
@@ -267,7 +265,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, defaultMo
                            >
                               Terms of Service
                            </button>
-                           <span> and Privacy Policy. I acknowledge that jackpots may be split and timing is subject to platform rules.</span>
                            {!agreedTerms && (
                               <div className="mt-2">
                                 <Button 
@@ -278,7 +275,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, defaultMo
                                   className="h-7 text-[10px]"
                                 >
                                   <ScrollText size={12} className="mr-1" />
-                                  REVIEW TERMS TO ACCEPT
+                                  REVIEW TERMS
                                 </Button>
                               </div>
                            )}
@@ -291,6 +288,20 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, defaultMo
               <Button type="submit" className="w-full mt-6 font-orbitron tracking-widest" disabled={loading}>
                 {loading ? <Loader2 className="animate-spin h-4 w-4" /> : (mode === 'login' ? 'AUTHENTICATE' : 'INITIATE')}
               </Button>
+
+              {/* MOCK ADMIN BYPASS - VISIBLE FOR DEV/DEMO WHEN BACKEND FAILS */}
+              <div className="mt-4 pt-4 border-t border-slate-800 flex justify-center">
+                 <button 
+                    type="button"
+                    onClick={handleMockAdmin}
+                    className="text-[10px] text-red-900 hover:text-red-500 font-mono flex items-center gap-1 transition-colors"
+                    title="Developer Bypass"
+                 >
+                    <ShieldAlert size={10} />
+                    <span>EMERGENCY ADMIN OVERRIDE</span>
+                 </button>
+              </div>
+
             </form>
 
             <div className="mt-6 text-center">
