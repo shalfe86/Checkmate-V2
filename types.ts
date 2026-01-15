@@ -35,3 +35,17 @@ export interface Move {
   to: string;
   promotion?: string;
 }
+
+export interface UserProfile {
+  id: string;
+  username: string;
+  country_code?: string;
+  avatar_url?: string;
+  role?: string;
+}
+
+export interface Wallet {
+  user_id: string;
+  balance: number;
+  currency: string;
+}

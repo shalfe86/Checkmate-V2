@@ -1,15 +1,9 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
-import { Chess, Move as ChessMove } from 'chess.js';
-import { TierLevel, TierConfig, GameState } from '../types';
-import { TIERS, STARTING_FEN } from '../constants';
+import { Chess } from 'chess.js';
+import { TierLevel, TierConfig, GameState, UserProfile, Wallet } from '../types';
+import { TIERS } from '../constants';
 import { submitMove, supabase } from '../lib/supabase';
-
-// Supabase v1 compatibility types
-interface User {
-  id: string;
-  email?: string;
-  [key: string]: any;
-}
+import { User } from '@supabase/supabase-js';
 
 interface GameContextType {
   currentTier: TierConfig | null;
@@ -22,12 +16,19 @@ interface GameContextType {
   resetGame: () => void;
   playerColor: 'w' | 'b';
   user: User | null;
+  profile: UserProfile | null;
+  wallet: Wallet | null;
+  refreshWallet: () => Promise<void>;
+  logout: () => Promise<void>;
 }
 
 const GameContext = createContext<GameContextType | undefined>(undefined);
 
 export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [wallet, setWallet] = useState<Wallet | null>(null);
+  
   const [currentTier, setCurrentTier] = useState<TierConfig | null>(null);
   const [game, setGame] = useState(new Chess());
   const [whiteTime, setWhiteTime] = useState(0);
@@ -36,31 +37,78 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   
   const timerInterval = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // Fetch Profile and Wallet
+  const fetchUserData = async (userId: string) => {
+    try {
+      const { data: profileData } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .single();
+      
+      const { data: walletData } = await supabase
+        .from('wallets')
+        .select('*')
+        .eq('user_id', userId)
+        .single();
+
+      if (profileData) setProfile(profileData);
+      if (walletData) setWallet(walletData);
+    } catch (error) {
+      console.error('Error fetching user data:', error);
+    }
+  };
+
+  const refreshWallet = async () => {
+    if (user) {
+      const { data: walletData } = await supabase
+        .from('wallets')
+        .select('*')
+        .eq('user_id', user.id)
+        .single();
+      if (walletData) setWallet(walletData);
+    }
+  };
+
+  const logout = async () => {
+    await supabase.auth.signOut();
+    setUser(null);
+    setProfile(null);
+    setWallet(null);
+    setCurrentTier(null); // Return to home on logout
+  };
+
   // Auth Listener
   useEffect(() => {
-    // Cast to any to handle potential version mismatches (v1 vs v2)
-    const auth = supabase.auth as any;
+    // Initial check
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        setUser(session.user);
+        fetchUserData(session.user.id);
+      }
+    });
 
-    // Check initial session (supports v1 session())
-    const session = auth.session ? auth.session() : null;
-    setUser(session?.user ?? null);
-
-    // Listen for changes
-    const { data: authListener } = auth.onAuthStateChange((_event: string, session: any) => {
-      setUser(session?.user ?? null);
+    // Subscribe to auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      const currentUser = session?.user ?? null;
+      setUser(currentUser);
+      
+      if (currentUser) {
+        await fetchUserData(currentUser.id);
+      } else {
+        setProfile(null);
+        setWallet(null);
+      }
     });
 
     return () => {
-      // v1 returns { data: { unsubscribe: () => void } } or similar
-      if (authListener && typeof authListener.unsubscribe === 'function') {
-        authListener.unsubscribe();
-      }
+      subscription.unsubscribe();
     };
   }, []);
 
   // Sync state helper
   const updateGameState = useCallback(() => {
-    setGame(new Chess(game.fen())); // Force re-render wrapper
+    setGame(new Chess(game.fen()));
   }, [game]);
 
   const selectTier = (tierId: TierLevel) => {
@@ -87,13 +135,13 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // 1. Optimistic Client Validation
     try {
-      const moveResult = game.move({ from, to, promotion: 'q' }); // Auto promote to queen for simplicity
+      const moveResult = game.move({ from, to, promotion: 'q' });
       if (!moveResult) return false;
       
       updateGameState();
 
       // 2. Handle Time Control (Increment)
-      const isWhiteTurn = moveResult.color === 'w'; // The move just made was by White
+      const isWhiteTurn = moveResult.color === 'w'; 
       const { increment, maxCap } = currentTier.timeControl;
       
       if (isWhiteTurn) {
@@ -119,7 +167,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
                // Apply Black Increment
                setBlackTime(prev => Math.min(prev + increment, maxCap));
             }
-         }, 500 + Math.random() * 1000); // 0.5s - 1.5s thinking time
+         }, 500 + Math.random() * 1000); 
       }
       
       return true;
@@ -135,13 +183,12 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return;
     }
 
-    // Only run timer if game has started (history > 0)
     if (game.history().length > 0) {
       timerInterval.current = setInterval(() => {
         if (game.turn() === 'w') {
           setWhiteTime(prev => {
              if (prev <= 0.1) {
-                game.setGameOver(true); // Simplified
+                game.setGameOver(true); 
                 return 0; 
              }
              return prev - 0.1;
@@ -167,7 +214,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     fen: game.fen(),
     turn: game.turn(),
     isGameOver: game.isGameOver(),
-    winner: game.isCheckmate() ? (game.turn() === 'w' ? 'b' : 'w') : null, // If turn is w and checkmate, b won
+    winner: game.isCheckmate() ? (game.turn() === 'w' ? 'b' : 'w') : null,
     history: game.history()
   };
 
@@ -182,7 +229,11 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       makeMove,
       resetGame,
       playerColor,
-      user
+      user,
+      profile,
+      wallet,
+      refreshWallet,
+      logout
     }}>
       {children}
     </GameContext.Provider>

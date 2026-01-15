@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { supabase } from '../../lib/supabase';
 import { Button } from '../ui/Button';
-import { X, Mail, Lock, Loader2, User, MapPin } from 'lucide-react';
+import { X, Mail, Lock, Loader2, User, Globe } from 'lucide-react';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -14,10 +14,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, defaultMo
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   
-  // New State for Sign Up
-  const [fullName, setFullName] = useState('');
-  const [address, setAddress] = useState('');
-
+  // Updated fields to match SQL schema
+  const [username, setUsername] = useState('');
+  
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -28,30 +27,27 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, defaultMo
     setLoading(true);
     setError(null);
     
-    // Cast to any to bypass version mismatch type errors
-    const auth = supabase.auth as any;
-
     try {
       if (mode === 'signup') {
-        const { error } = await auth.signUp(
-          { 
-            email, 
-            password,
-          },
-          {
+        // Sign up with metadata for the SQL trigger
+        const { error } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
             data: {
-              full_name: fullName,
-              address: address,
-              role: 'player'
+              username: username,
+              // Defaulting country code for now, can be added as a field later
+              country_code: 'US', 
+              avatar_url: `https://api.dicebear.com/7.x/shapes/svg?seed=${username}`
             }
           }
-        );
+        });
         if (error) throw error;
-        alert('Registration successful! Check your email for the confirmation link.');
+        alert('Registration successful! Please check your email to confirm your account.');
         onClose();
       } else {
-        // Use v1 signIn method
-        const { error } = await auth.signIn({ email, password });
+        // Login
+        const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
         onClose();
       }
@@ -86,37 +82,20 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, defaultMo
             )}
             
             {mode === 'signup' && (
-              <>
-                <div className="space-y-2">
-                  <label className="text-xs font-mono text-slate-400 uppercase">Full Legal Name</label>
-                  <div className="relative">
-                    <User className="absolute left-3 top-2.5 h-4 w-4 text-slate-500" />
-                    <input 
-                      type="text" 
-                      required
-                      className="w-full bg-slate-900 border border-slate-700 rounded-md py-2 pl-9 pr-3 text-sm text-white focus:outline-none focus:border-yellow-500 transition-colors"
-                      placeholder="John Doe"
-                      value={fullName}
-                      onChange={(e) => setFullName(e.target.value)}
-                    />
-                  </div>
+              <div className="space-y-2">
+                <label className="text-xs font-mono text-slate-400 uppercase">Username</label>
+                <div className="relative">
+                  <User className="absolute left-3 top-2.5 h-4 w-4 text-slate-500" />
+                  <input 
+                    type="text" 
+                    required
+                    className="w-full bg-slate-900 border border-slate-700 rounded-md py-2 pl-9 pr-3 text-sm text-white focus:outline-none focus:border-yellow-500 transition-colors"
+                    placeholder="ChessWiz"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                  />
                 </div>
-
-                <div className="space-y-2">
-                  <label className="text-xs font-mono text-slate-400 uppercase">Current Address</label>
-                  <div className="relative">
-                    <MapPin className="absolute left-3 top-2.5 h-4 w-4 text-slate-500" />
-                    <input 
-                      type="text" 
-                      required
-                      className="w-full bg-slate-900 border border-slate-700 rounded-md py-2 pl-9 pr-3 text-sm text-white focus:outline-none focus:border-yellow-500 transition-colors"
-                      placeholder="123 Chess Avenue, NY"
-                      value={address}
-                      onChange={(e) => setAddress(e.target.value)}
-                    />
-                  </div>
-                </div>
-              </>
+              </div>
             )}
 
             <div className="space-y-2">

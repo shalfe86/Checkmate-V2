@@ -83,16 +83,6 @@ export const TierSelection: React.FC = () => {
           
           {/* 2. Hero Section Typography */}
           <div className="text-center mb-20 space-y-6 relative">
-             <div className="inline-flex items-center gap-3 px-4 py-1.5 rounded-full bg-white/5 border border-white/10 backdrop-blur-md shadow-2xl animate-fade-in-up">
-                <span className="relative flex h-2 w-2">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
-                </span>
-                <span className="text-[10px] font-mono uppercase tracking-[0.2em] text-slate-300">
-                  Mainnet Live v2.4
-                </span>
-             </div>
-             
              <h1 className="text-6xl md:text-8xl lg:text-9xl font-black font-orbitron leading-[0.9] tracking-tighter">
                PLAY FOR <br className="hidden md:block"/>
                <span className="text-gold-gradient relative inline-block">
