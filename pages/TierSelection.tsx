@@ -84,9 +84,9 @@ export const TierSelection: React.FC = () => {
           {/* 2. Hero Section Typography */}
           <div className="text-center mb-20 space-y-6 relative">
              <h1 className="text-6xl md:text-8xl lg:text-9xl font-black font-orbitron leading-[0.9] tracking-tighter">
-               PLAY FOR <br className="hidden md:block"/>
+               PLAY CHESS <br className="hidden md:block"/>
                <span className="text-gold-gradient relative inline-block">
-                 ETERNITY
+                 WIN BIG
                  <span className="absolute -inset-2 bg-yellow-500/20 blur-xl opacity-50 rounded-full pointer-events-none"></span>
                </span>
              </h1>
