@@ -4,6 +4,7 @@ import { TierLevel, TierConfig, GameState, UserProfile, Wallet } from '../types'
 import { TIERS } from '../constants';
 import { submitMove, supabase } from '../lib/supabase';
 import { User } from '@supabase/supabase-js';
+import { getBestMove } from '../lib/engine';
 
 type AppView = 'lobby' | 'rules' | 'terms';
 
@@ -189,18 +190,18 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
          submitMove('game-123', { from, to }); 
       }
 
-      // 4. Simulate Random Opponent Move (if playing vs computer stub)
+      // 4. Trigger AI Move (Fast & Difficult)
       if (moveResult.color === playerColor && !game.isGameOver()) {
+         // Use setTimeout(0) or small delay to unblock the main thread for UI render
          setTimeout(() => {
-            const moves = game.moves();
-            if (moves.length > 0) {
-               const randomMove = moves[Math.floor(Math.random() * moves.length)];
-               game.move(randomMove);
+            const aiMove = getBestMove(game, currentTier.id);
+            if (aiMove) {
+               game.move(aiMove);
                updateGameState();
                // Apply Black Increment
                setBlackTime(prev => Math.min(prev + increment, maxCap));
             }
-         }, 500 + Math.random() * 1000); 
+         }, 50); 
       }
       
       return true;
