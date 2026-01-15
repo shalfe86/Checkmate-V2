@@ -9,7 +9,7 @@ import { Trophy, Clock, DollarSign, ShieldAlert, ChevronRight, Crown, FileText, 
 import { TierConfig, TierLevel } from '../types';
 
 export const TierSelection: React.FC = () => {
-  const { selectTier, user } = useGame();
+  const { selectTier, user, setView } = useGame();
   const tier3 = TIERS[TierLevel.TIER_3];
   const tier2 = TIERS[TierLevel.TIER_2];
   const tier1 = TIERS[TierLevel.TIER_1];
@@ -92,8 +92,8 @@ export const TierSelection: React.FC = () => {
              </h1>
              
              <p className="text-slate-400 max-w-xl mx-auto text-lg font-tech font-light tracking-wide leading-relaxed">
-               The definitive high-stakes chess platform. 
-               <span className="text-white font-medium"> Zero latency. Instant settlement.</span>
+               Do you have what it takes to outsmart the AI?
+               <span className="text-white font-medium block mt-2"> Real money is on the line.</span>
              </p>
           </div>
 
@@ -114,35 +114,40 @@ export const TierSelection: React.FC = () => {
                           <div className="inline-flex items-center gap-2 text-yellow-500 font-bold tracking-[0.2em] text-[10px] uppercase border border-yellow-500/30 px-3 py-1 rounded-full bg-yellow-500/5">
                             <Crown size={12} /> Championship Series
                           </div>
-                          <h2 className="text-4xl md:text-6xl font-orbitron font-black text-white leading-[0.9]">
+                          <h2 className="text-4xl md:text-5xl font-orbitron font-black text-white leading-[0.9]">
                             GRAND<br/>
                             <span className="text-transparent bg-clip-text bg-gradient-to-r from-white to-slate-500">MASTER</span>
                           </h2>
-                          <p className="text-slate-400 pt-2 max-w-xs font-tech text-sm border-l-2 border-yellow-500/30 pl-4">
-                            {tier3.description}
-                          </p>
+                          
+                          {/* Updated Rules List */}
+                          <ul className="space-y-2 text-xs text-slate-400 font-tech mt-4 border-l-2 border-yellow-500/30 pl-4">
+                              <li className="flex items-start gap-2">
+                                  <span className="text-yellow-500/50">•</span> Elite AI (wins 99% of games)
+                              </li>
+                              <li className="flex items-start gap-2">
+                                  <span className="text-yellow-500/50">•</span> $1 to pot • $1 house fee
+                              </li>
+                              <li className="flex items-start gap-2">
+                                  <span className="text-yellow-500/50">•</span> Vault: $5 start → $100k+ cap
+                              </li>
+                              <li className="flex items-start gap-2 text-yellow-200">
+                                  <span className="text-yellow-400">★</span> First to win takes the vault!
+                              </li>
+                              <li className="flex items-start gap-2">
+                                  <span className="text-yellow-500/50">•</span> 25 sec start • 25 sec max
+                              </li>
+                          </ul>
                        </div>
 
-                       <div className="pt-12 space-y-8">
+                       <div className="pt-8 space-y-8">
                           <div>
                              <div className="flex items-baseline gap-2">
-                               <span className="text-7xl font-orbitron font-bold text-white tracking-tighter drop-shadow-[0_0_15px_rgba(255,255,255,0.3)]">
+                               <span className="text-6xl font-orbitron font-bold text-white tracking-tighter drop-shadow-[0_0_15px_rgba(255,255,255,0.3)]">
                                  ${tier3.jackpotSplit}
                                </span>
                                <span className="text-sm font-tech text-yellow-500/80 font-bold uppercase tracking-widest">USD Win</span>
                              </div>
                              <div className="h-px w-full bg-gradient-to-r from-yellow-500/50 to-transparent mt-4"></div>
-                          </div>
-
-                          <div className="flex flex-wrap gap-3">
-                             <div className="flex flex-col bg-white/5 px-4 py-2 rounded-lg border border-white/5">
-                                <span className="text-[10px] text-slate-500 uppercase tracking-wider">Format</span>
-                                <span className="font-mono text-xs text-white">25+1 Bullet</span>
-                             </div>
-                             <div className="flex flex-col bg-white/5 px-4 py-2 rounded-lg border border-white/5">
-                                <span className="text-[10px] text-slate-500 uppercase tracking-wider">Entry</span>
-                                <span className="font-mono text-xs text-yellow-400 font-bold">$2.00</span>
-                             </div>
                           </div>
 
                           <Button 
@@ -181,17 +186,27 @@ export const TierSelection: React.FC = () => {
                            <Target size={24} />
                         </div>
                         <div className="text-right">
-                          <span className="block text-[10px] text-slate-500 uppercase tracking-wider">Potential</span>
+                          <span className="block text-[10px] text-slate-500 uppercase tracking-wider">Pot</span>
                           <span className="text-3xl font-bold font-orbitron text-white">${tier2.jackpotSplit}</span>
                         </div>
                      </div>
                      
-                     <div className="mt-8">
+                     <div className="mt-6 flex-1">
                         <h3 className="text-xl font-bold text-white mb-2 font-orbitron">{tier2.name}</h3>
-                        <div className="w-full bg-white/5 rounded-full h-1 mb-4 overflow-hidden">
-                          <div className="w-3/4 h-full bg-blue-500"></div>
-                        </div>
-                        <div className="flex items-center justify-between text-slate-400 text-xs font-tech">
+                        
+                        <ul className="space-y-1 text-xs text-slate-400 font-tech mb-4">
+                            <li className="flex items-start gap-2">
+                                <span className="text-blue-500/50">•</span> Medium AI • $0.75 to pot
+                            </li>
+                            <li className="flex items-start gap-2 text-blue-200">
+                                <span className="text-blue-400">★</span> Pot: $5 start → $1,000 cap
+                            </li>
+                            <li className="flex items-start gap-2">
+                                <span className="text-blue-500/50">•</span> 30 sec start • 35 sec max
+                            </li>
+                        </ul>
+
+                        <div className="flex items-center justify-between text-slate-400 text-xs font-tech pt-2 border-t border-white/5">
                            <span>Entry: ${tier2.entryFee}</span>
                            <span className="flex items-center gap-1 text-blue-400">30+1 Rapid</span>
                         </div>
@@ -215,10 +230,22 @@ export const TierSelection: React.FC = () => {
                         <span className="text-[10px] font-bold text-slate-900 bg-slate-200 px-2 py-1 rounded uppercase tracking-wider">Free Tier</span>
                      </div>
                      
-                     <div className="mt-8">
+                     <div className="mt-6 flex-1">
                         <h3 className="text-xl font-bold text-slate-200 mb-2 font-orbitron">{tier1.name}</h3>
-                        <p className="text-xs text-slate-500 mb-4 line-clamp-2">Risk-free environment for strategy calibration.</p>
-                        <div className="flex items-center justify-between text-slate-500 text-xs font-tech border-t border-white/5 pt-3">
+                        
+                        <ul className="space-y-1 text-xs text-slate-500 font-tech mb-4">
+                            <li className="flex items-start gap-2">
+                                <span className="text-slate-600">•</span> Unlimited free games
+                            </li>
+                            <li className="flex items-start gap-2">
+                                <span className="text-slate-600">•</span> Beginner-friendly AI
+                            </li>
+                            <li className="flex items-start gap-2">
+                                <span className="text-slate-600">•</span> 40 sec start • 50 sec max
+                            </li>
+                        </ul>
+
+                        <div className="flex items-center justify-between text-slate-500 text-xs font-tech border-t border-white/5 pt-2">
                            <span>Practice Mode</span>
                            <span className="flex items-center gap-1 text-slate-300">40+2 Classic</span>
                         </div>
@@ -234,10 +261,10 @@ export const TierSelection: React.FC = () => {
               <div className="container mx-auto max-w-7xl">
                 <div className="grid grid-cols-2 md:grid-cols-4 divide-x divide-white/5">
                   {[
-                    { label: 'Total Volume', value: '$2.4M+' },
-                    { label: 'Active Nodes', value: '1,204' },
-                    { label: 'Avg Payout', value: '142ms' },
-                    { label: 'Security', value: 'AES-256' },
+                    { label: 'Total Paid Out', value: '$8,450,230' },
+                    { label: 'Avg Tier 3 Payout', value: '$12,405' },
+                    { label: 'Live Games', value: '842' },
+                    { label: 'Total Accounts', value: '42,093' },
                   ].map((stat, i) => (
                     <div key={i} className="py-8 text-center group cursor-default">
                        <div className="text-3xl font-bold font-orbitron text-white group-hover:text-gold-gradient transition-colors duration-300">{stat.value}</div>
@@ -264,12 +291,12 @@ export const TierSelection: React.FC = () => {
             </div>
             
             <div className="flex items-center gap-8">
-               <a href="#" className="flex items-center gap-2 text-xs text-slate-500 hover:text-white transition-colors uppercase tracking-wider font-tech">
+               <button onClick={() => setView('rules')} className="flex items-center gap-2 text-xs text-slate-500 hover:text-white transition-colors uppercase tracking-wider font-tech">
                  Rules
-               </a>
-               <a href="#" className="flex items-center gap-2 text-xs text-slate-500 hover:text-white transition-colors uppercase tracking-wider font-tech">
+               </button>
+               <button onClick={() => setView('terms')} className="flex items-center gap-2 text-xs text-slate-500 hover:text-white transition-colors uppercase tracking-wider font-tech">
                  Terms
-               </a>
+               </button>
                <a href="#" className="flex items-center gap-2 text-xs text-slate-500 hover:text-white transition-colors uppercase tracking-wider font-tech">
                  Contact
                </a>

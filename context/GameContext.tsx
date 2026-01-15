@@ -5,6 +5,8 @@ import { TIERS } from '../constants';
 import { submitMove, supabase } from '../lib/supabase';
 import { User } from '@supabase/supabase-js';
 
+type AppView = 'lobby' | 'rules' | 'terms';
+
 interface GameContextType {
   currentTier: TierConfig | null;
   selectTier: (tier: TierLevel) => void;
@@ -20,6 +22,8 @@ interface GameContextType {
   wallet: Wallet | null;
   refreshWallet: () => Promise<void>;
   logout: () => Promise<void>;
+  currentView: AppView;
+  setView: (view: AppView) => void;
 }
 
 const GameContext = createContext<GameContextType | undefined>(undefined);
@@ -34,6 +38,8 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [whiteTime, setWhiteTime] = useState(0);
   const [blackTime, setBlackTime] = useState(0);
   const [playerColor] = useState<'w' | 'b'>('w');
+  
+  const [currentView, setCurrentView] = useState<AppView>('lobby');
   
   const timerInterval = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -83,18 +89,17 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const logout = async () => {
     // 1. Optimistically clear local state immediately
-    // This ensures the UI updates to "Logged Out" state instantly
     setUser(null);
     setProfile(null);
     setWallet(null);
     setCurrentTier(null);
+    setCurrentView('lobby');
     
     try {
       // 2. Perform the actual Supabase sign out
       await supabase.auth.signOut();
     } catch (error) {
       console.error('Logout error:', error);
-      // Even if network fails, we've cleared local state, so user is effectively logged out of the UI
     }
   };
 
@@ -112,9 +117,6 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       const currentUser = session?.user ?? null;
       
-      // Only update if different to prevent loops/thrashing
-      // Note: Comparing objects directly in React state setters is tricky, 
-      // but checking ID is usually sufficient for auth users.
       if (currentUser?.id !== user?.id) {
           setUser(currentUser);
       }
@@ -122,8 +124,6 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (currentUser) {
         if (!profile) await fetchUserData(currentUser.id);
       } else {
-        // Ensure state is cleared on SIGNED_OUT event if it came from elsewhere
-        // (e.g. token expiration or multi-tab signout)
         setProfile(null);
         setWallet(null);
       }
@@ -132,7 +132,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => {
       subscription.unsubscribe();
     };
-  }, [user, profile]); // Dependency on user/profile to avoid redundant fetches
+  }, [user, profile]);
 
   // Sync state helper - Clone via PGN to preserve history
   const updateGameState = useCallback(() => {
@@ -140,7 +140,6 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       newGame.loadPgn(game.pgn());
     } catch (e) {
-      // Fallback if PGN load fails (rare), usually means empty or custom position
       newGame.load(game.fen());
     }
     setGame(newGame);
@@ -187,7 +186,6 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       // 3. Server Validation (Tier 2 & 3)
       if (currentTier.validation === 'server') {
-         // In a real app, await this. If fail, undo move.
          submitMove('game-123', { from, to }); 
       }
 
@@ -213,7 +211,6 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Timer Logic
   useEffect(() => {
-    // Check timeout manually since we removed setGameOver
     const isTimeout = whiteTime <= 0 || blackTime <= 0;
     
     if (!currentTier || game.isGameOver() || isTimeout) {
@@ -221,19 +218,18 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return;
     }
 
-    // Only run timer if game has started (history > 0)
     if (game.history().length > 0) {
       if (timerInterval.current) clearInterval(timerInterval.current);
       
       timerInterval.current = setInterval(() => {
         if (game.turn() === 'w') {
           setWhiteTime(prev => {
-             if (prev <= 0.1) return 0; // Stop at 0
+             if (prev <= 0.1) return 0;
              return prev - 0.1;
           });
         } else {
           setBlackTime(prev => {
-            if (prev <= 0.1) return 0; // Stop at 0
+            if (prev <= 0.1) return 0;
             return prev - 0.1;
           });
         }
@@ -243,9 +239,9 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => {
       if (timerInterval.current) clearInterval(timerInterval.current);
     };
-  }, [game, currentTier, whiteTime, blackTime]); // Added dependencies to catch timeout
+  }, [game, currentTier, whiteTime, blackTime]);
 
-  // Calculate game state, including timeout logic
+  // Calculate game state
   const isTimeout = whiteTime <= 0 || blackTime <= 0;
   let winner = null;
   
@@ -280,7 +276,9 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       profile,
       wallet,
       refreshWallet,
-      logout
+      logout,
+      currentView,
+      setView: setCurrentView
     }}>
       {children}
     </GameContext.Provider>

@@ -10,7 +10,7 @@ import {
 } from 'lucide-react';
 
 export const Dashboard: React.FC = () => {
-  const { user, profile, wallet, selectTier } = useGame();
+  const { user, profile, wallet, selectTier, setView } = useGame();
   
   // Mock Data for "Monthly Cap"
   const MONTHLY_CAP = 500;
@@ -21,8 +21,8 @@ export const Dashboard: React.FC = () => {
   if (!user) return null;
 
   return (
-    <div className="min-h-screen bg-[#050505] text-white pt-24 pb-12 px-4">
-      <div className="container mx-auto max-w-6xl space-y-8">
+    <div className="min-h-screen bg-[#050505] text-white pt-24 pb-12 px-4 flex flex-col">
+      <div className="container mx-auto max-w-6xl space-y-8 flex-1">
         
         {/* Header Section */}
         <div className="flex flex-col md:flex-row justify-between items-end md:items-center gap-4">
@@ -160,21 +160,37 @@ export const Dashboard: React.FC = () => {
            >
               <div className="absolute inset-0 bg-white/5 rounded-2xl blur-xl group-hover:bg-white/10 transition-all opacity-0 group-hover:opacity-100"></div>
               <Card className="h-full border-white/10 hover:border-white/30 transition-all bg-[#0A0A0C]">
-                 <div className="p-6 flex flex-col h-full justify-between">
-                    <div>
-                       <div className="flex justify-between items-center mb-4">
-                          <div className="p-2 bg-slate-800 rounded-lg text-slate-400">
-                             <Zap size={20} />
-                          </div>
-                          <span className="text-[10px] font-bold bg-slate-800 text-slate-300 px-2 py-1 rounded">FREE</span>
-                       </div>
-                       <h3 className="text-lg font-bold font-orbitron text-white mb-2">{TIERS[TierLevel.TIER_1].name}</h3>
-                       <p className="text-xs text-slate-500 mb-4">{TIERS[TierLevel.TIER_1].description}</p>
+                 <div className="p-6 flex flex-col h-full">
+                    <div className="flex justify-between items-center mb-4">
+                        <div className="p-2 bg-slate-800 rounded-lg text-slate-400">
+                            <Zap size={20} />
+                        </div>
+                        <span className="text-[10px] font-bold bg-slate-800 text-slate-300 px-2 py-1 rounded">FREE</span>
                     </div>
-                    <div className="mt-4 pt-4 border-t border-white/5">
-                        <div className="flex items-center text-slate-400 text-xs gap-2">
+                    <h3 className="text-lg font-bold font-orbitron text-white mb-4">{TIERS[TierLevel.TIER_1].name}</h3>
+                    
+                    <ul className="space-y-2 text-xs text-slate-400 font-tech mb-6 flex-1">
+                        <li className="flex items-start gap-2">
+                            <span className="text-slate-600">•</span> Unlimited free games
+                        </li>
+                        <li className="flex items-start gap-2">
+                            <span className="text-slate-600">•</span> Beginner-friendly AI opponent
+                        </li>
+                        <li className="flex items-start gap-2">
+                            <span className="text-slate-600">•</span> 40 sec start • 50 sec max
+                        </li>
+                        <li className="flex items-start gap-2">
+                            <span className="text-slate-600">•</span> +2 sec per move
+                        </li>
+                        <li className="flex items-start gap-2 text-slate-300">
+                            <span className="text-green-500">✓</span> No risk, all fun
+                        </li>
+                    </ul>
+
+                    <div className="pt-4 border-t border-white/5">
+                        <div className="flex items-center text-slate-500 text-[10px] uppercase tracking-wider gap-2">
                            <Shield size={12} />
-                           <span>Practice Mode</span>
+                           <span>Practice Protocol</span>
                         </div>
                     </div>
                  </div>
@@ -188,34 +204,59 @@ export const Dashboard: React.FC = () => {
            >
               <div className="absolute inset-0 bg-blue-500/5 rounded-2xl blur-xl group-hover:bg-blue-500/10 transition-all opacity-0 group-hover:opacity-100"></div>
               <Card className="h-full border-blue-500/20 hover:border-blue-500/50 transition-all bg-[#0A0A0C]">
-                 <div className="p-6 flex flex-col h-full justify-between">
-                    <div>
-                       <div className="flex justify-between items-center mb-4">
-                          <div className="p-2 bg-blue-900/20 rounded-lg text-blue-400">
-                             <Target size={20} />
-                          </div>
-                          <span className="text-[10px] font-bold bg-blue-900/30 text-blue-300 border border-blue-500/30 px-2 py-1 rounded">
-                             ENTRY ${TIERS[TierLevel.TIER_2].entryFee}
-                          </span>
-                       </div>
-                       <h3 className="text-lg font-bold font-orbitron text-white mb-1">{TIERS[TierLevel.TIER_2].name}</h3>
-                       <div className="flex items-baseline gap-2 mb-2">
-                          <span className="text-2xl font-bold text-blue-400">${TIERS[TierLevel.TIER_2].jackpotSplit}</span>
-                          <span className="text-xs text-slate-500 uppercase">Jackpot</span>
-                       </div>
+                 <div className="p-6 flex flex-col h-full">
+                    <div className="flex justify-between items-center mb-4">
+                        <div className="p-2 bg-blue-900/20 rounded-lg text-blue-400">
+                            <Target size={20} />
+                        </div>
+                        <span className="text-[10px] font-bold bg-blue-900/30 text-blue-300 border border-blue-500/30 px-2 py-1 rounded">
+                            ENTRY ${TIERS[TierLevel.TIER_2].entryFee}
+                        </span>
                     </div>
                     
-                    <div className="mt-4 pt-4 border-t border-white/5 space-y-2">
-                       <div className="flex justify-between text-xs">
-                          <span className="text-slate-500">Eligibility</span>
-                          {isTier2Eligible ? (
-                             <span className="text-green-400">Qualified</span>
-                          ) : (
-                             <span className="text-red-400">Cap Reached</span>
-                          )}
-                       </div>
-                       <div className="w-full bg-slate-800 h-1 rounded-full overflow-hidden">
-                          <div className="bg-blue-500 h-full w-3/4"></div>
+                    <h3 className="text-lg font-bold font-orbitron text-white mb-1">{TIERS[TierLevel.TIER_2].name}</h3>
+                    <div className="flex items-baseline gap-2 mb-4">
+                        <span className="text-2xl font-bold text-blue-400">${TIERS[TierLevel.TIER_2].jackpotSplit}</span>
+                        <span className="text-xs text-slate-500 uppercase">Jackpot</span>
+                    </div>
+
+                    <ul className="space-y-2 text-xs text-slate-400 font-tech mb-6 flex-1">
+                        <li className="flex items-start gap-2">
+                            <span className="text-blue-500/50">•</span> Medium difficulty AI
+                        </li>
+                        <li className="flex items-start gap-2">
+                            <span className="text-blue-500/50">•</span> $0.75 to pot • $0.25 house fee
+                        </li>
+                        <li className="flex items-start gap-2">
+                            <span className="text-blue-500/50">•</span> Pot: $5 start → $1,000 cap
+                        </li>
+                        <li className="flex items-start gap-2 text-blue-200">
+                            <span className="text-blue-400">★</span> First to win takes the pot!
+                        </li>
+                        <li className="flex items-start gap-2">
+                            <span className="text-blue-500/50">•</span> 30 sec start • 35 sec max
+                        </li>
+                        <li className="flex items-start gap-2">
+                            <span className="text-blue-500/50">•</span> +1s/move (if {'<'}4s)
+                        </li>
+                    </ul>
+
+                    <div className="pt-4 border-t border-white/5 space-y-3">
+                       <div className="space-y-1">
+                           <div className="flex justify-between text-[10px] uppercase tracking-wider">
+                              <span className="text-slate-500">Tier Limit</span>
+                              {isTier2Eligible ? (
+                                 <span className="text-blue-400">Qualified</span>
+                              ) : (
+                                 <span className="text-red-400">Cap Reached</span>
+                              )}
+                           </div>
+                           <div className="w-full bg-slate-800 h-1 rounded-full overflow-hidden">
+                              <div 
+                                className={`h-full transition-all duration-500 ${isTier2Eligible ? 'bg-blue-500' : 'bg-red-500'}`}
+                                style={{ width: `${earningsPercentage}%` }}
+                              ></div>
+                           </div>
                        </div>
                     </div>
                  </div>
@@ -229,27 +270,47 @@ export const Dashboard: React.FC = () => {
            >
               <div className="absolute inset-0 bg-yellow-500/5 rounded-2xl blur-xl group-hover:bg-yellow-500/10 transition-all opacity-0 group-hover:opacity-100"></div>
               <Card className="h-full border-yellow-500/20 hover:border-yellow-500/50 transition-all bg-gradient-to-b from-[#121214] to-black">
-                 <div className="p-6 flex flex-col h-full justify-between">
-                    <div>
-                       <div className="flex justify-between items-center mb-4">
-                          <div className="p-2 bg-yellow-900/20 rounded-lg text-yellow-400">
-                             <Crown size={20} />
-                          </div>
-                          <span className="text-[10px] font-bold bg-yellow-900/30 text-yellow-300 border border-yellow-500/30 px-2 py-1 rounded">
-                             ENTRY ${TIERS[TierLevel.TIER_3].entryFee}
-                          </span>
-                       </div>
-                       <h3 className="text-lg font-bold font-orbitron text-white mb-1">{TIERS[TierLevel.TIER_3].name}</h3>
-                       <div className="flex items-baseline gap-2 mb-2">
-                          <span className="text-2xl font-bold text-yellow-400 drop-shadow-[0_0_10px_rgba(234,179,8,0.3)]">
-                             ${TIERS[TierLevel.TIER_3].jackpotSplit}
-                          </span>
-                          <span className="text-xs text-slate-500 uppercase">Jackpot</span>
-                       </div>
+                 <div className="p-6 flex flex-col h-full">
+                    <div className="flex justify-between items-center mb-4">
+                        <div className="p-2 bg-yellow-900/20 rounded-lg text-yellow-400">
+                            <Crown size={20} />
+                        </div>
+                        <span className="text-[10px] font-bold bg-yellow-900/30 text-yellow-300 border border-yellow-500/30 px-2 py-1 rounded">
+                            ENTRY ${TIERS[TierLevel.TIER_3].entryFee}
+                        </span>
                     </div>
+
+                    <h3 className="text-lg font-bold font-orbitron text-white mb-1">{TIERS[TierLevel.TIER_3].name}</h3>
+                    <div className="flex items-baseline gap-2 mb-4">
+                        <span className="text-2xl font-bold text-yellow-400 drop-shadow-[0_0_10px_rgba(234,179,8,0.3)]">
+                            ${TIERS[TierLevel.TIER_3].jackpotSplit}
+                        </span>
+                        <span className="text-xs text-slate-500 uppercase">Jackpot</span>
+                    </div>
+
+                    <ul className="space-y-2 text-xs text-slate-400 font-tech mb-6 flex-1">
+                        <li className="flex items-start gap-2">
+                            <span className="text-yellow-500/50">•</span> Elite AI (wins 99% of games)
+                        </li>
+                        <li className="flex items-start gap-2">
+                            <span className="text-yellow-500/50">•</span> $1 to pot • $1 house fee
+                        </li>
+                        <li className="flex items-start gap-2">
+                            <span className="text-yellow-500/50">•</span> Vault: $5 start → $100k+ cap
+                        </li>
+                        <li className="flex items-start gap-2 text-yellow-200">
+                            <span className="text-yellow-400">★</span> First to win takes the vault!
+                        </li>
+                        <li className="flex items-start gap-2">
+                            <span className="text-yellow-500/50">•</span> 25 sec start • 25 sec max
+                        </li>
+                        <li className="flex items-start gap-2">
+                            <span className="text-yellow-500/50">•</span> +1s/move (if {'<'}4s)
+                        </li>
+                    </ul>
                     
-                    <div className="mt-4 pt-4 border-t border-white/5">
-                        <Button className="w-full h-8 text-xs gold-btn">
+                    <div className="pt-4 border-t border-white/5">
+                        <Button className="w-full h-9 text-xs gold-btn">
                            ENTER ARENA
                         </Button>
                     </div>
@@ -260,6 +321,27 @@ export const Dashboard: React.FC = () => {
         </div>
 
       </div>
+
+      {/* Footer (Added for Consistency and Rules Link) */}
+      <footer className="border-t border-white/5 mt-12 py-8">
+        <div className="container mx-auto flex flex-col md:flex-row justify-between items-center gap-8">
+            <div className="flex flex-col gap-2">
+               <div className="flex items-center gap-2 opacity-50">
+                 <Crown className="h-4 w-4 text-slate-400" />
+                 <span className="text-xs text-slate-500 font-orbitron tracking-widest">CHECKMATE JACKPOT</span>
+               </div>
+            </div>
+            <div className="flex items-center gap-8">
+               <button onClick={() => setView('rules')} className="text-xs text-slate-500 hover:text-white uppercase tracking-wider font-tech">
+                 Rules
+               </button>
+               <button onClick={() => setView('terms')} className="text-xs text-slate-500 hover:text-white uppercase tracking-wider font-tech">
+                 Terms
+               </button>
+               <span className="text-xs text-slate-500 uppercase tracking-wider font-tech cursor-pointer hover:text-white">Contact</span>
+            </div>
+        </div>
+      </footer>
     </div>
   );
 };

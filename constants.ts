@@ -20,7 +20,7 @@ export const TIERS: Record<TierLevel, TierConfig> = {
     id: TierLevel.TIER_2,
     name: "Club Challenger",
     entryFee: 1.00,
-    jackpotSplit: 0.75,
+    jackpotSplit: 5.00,
     houseSplit: 0.25,
     timeControl: {
       initial: 30,
@@ -29,13 +29,13 @@ export const TIERS: Record<TierLevel, TierConfig> = {
     },
     validation: 'server',
     hasAds: false,
-    description: "Entry level stakes. Winner takes $0.75.",
+    description: "Entry level stakes. Winner takes the pot.",
   },
   [TierLevel.TIER_3]: {
     id: TierLevel.TIER_3,
     name: "Grandmaster's Vault",
     entryFee: 2.00,
-    jackpotSplit: 1.00,
+    jackpotSplit: 5.00,
     houseSplit: 1.00,
     timeControl: {
       initial: 25,
@@ -44,7 +44,7 @@ export const TIERS: Record<TierLevel, TierConfig> = {
     },
     validation: 'server',
     hasAds: false,
-    description: "High velocity. High reward. Winner takes $1.00.",
+    description: "High velocity. High reward. Winner takes the vault.",
   }
 };
 

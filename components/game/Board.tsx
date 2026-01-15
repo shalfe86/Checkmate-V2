@@ -65,15 +65,6 @@ export const Board: React.FC = () => {
           style={{ width: '100%', maxWidth: '600px', height: '600px', aspectRatio: '1/1' }} 
           className="w-[80vw] h-[80vw] md:w-[600px] md:h-[600px]"
         />
-        
-        {/* Tier Overlay (if applicable) */}
-        {currentTier && (
-          <div className="absolute top-2 right-2 pointer-events-none">
-             <span className="bg-slate-950/80 border border-yellow-500/30 text-yellow-500 text-xs px-2 py-1 rounded backdrop-blur-sm font-orbitron">
-               {currentTier.name.split(' ')[0]} MODE
-             </span>
-          </div>
-        )}
       </div>
     </div>
   );
