@@ -26,7 +26,6 @@ interface GameContextType {
   currentView: AppView;
   setView: (view: AppView) => void;
   isAdmin: boolean;
-  loginAsMockAdmin: () => void; // Added for mock capability
 }
 
 const GameContext = createContext<GameContextType | undefined>(undefined);
@@ -46,10 +45,10 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   
   const timerInterval = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Computed Admin Status
-  const isAdmin = user?.email === 'admin@checkmate.com' || profile?.role === 'admin';
+  // Computed Admin Status (Strict Server Check)
+  const isAdmin = profile?.role === 'admin';
 
-  // Fetch Profile and Wallet with error handling
+  // Fetch Profile and Wallet (Strict Server)
   const fetchUserData = async (userId: string) => {
     try {
       const { data: profileData, error: profileError } = await supabase
@@ -60,13 +59,6 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       if (!profileError && profileData) {
         setProfile(profileData);
-      } else {
-        // Fallback for mock users
-        setProfile({
-            id: userId,
-            username: user?.email?.split('@')[0] || 'User',
-            role: user?.email === 'admin@checkmate.com' ? 'admin' : 'user'
-        });
       }
       
       const { data: walletData, error: walletError } = await supabase
@@ -80,44 +72,10 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           ...walletData,
           monthly_earnings: walletData.monthly_earnings ?? 0
         });
-      } else {
-        // Mock wallet
-        setWallet({
-            user_id: userId,
-            balance: 1000.00,
-            currency: 'USD',
-            monthly_earnings: 124.50
-        });
       }
     } catch (error) {
-      console.warn('Backend unavailable, using mock data');
+      console.error('Error fetching user data:', error);
     }
-  };
-
-  const loginAsMockAdmin = () => {
-    const mockUser: User = {
-        id: 'mock-admin-id',
-        app_metadata: {},
-        user_metadata: {},
-        aud: 'authenticated',
-        created_at: new Date().toISOString(),
-        email: 'admin@checkmate.com',
-        role: 'authenticated'
-    };
-    setUser(mockUser);
-    setProfile({
-        id: 'mock-admin-id',
-        username: 'AdminCommander',
-        role: 'admin',
-        avatar_url: 'https://ui-avatars.com/api/?name=Admin&background=red&color=fff'
-    });
-    setWallet({
-        user_id: 'mock-admin-id',
-        balance: 999999,
-        currency: 'USD',
-        monthly_earnings: 0
-    });
-    setCurrentView('admin');
   };
 
   const refreshWallet = async () => {
@@ -125,57 +83,51 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const logout = async () => {
+    // 1. Optimistically clear local state
     setUser(null);
     setProfile(null);
     setWallet(null);
     setCurrentTier(null);
     setCurrentView('lobby');
     
+    // 2. Perform server sign out
     try {
       await supabase.auth.signOut();
     } catch (error) {
-      console.warn('Logout warning (Supabase might be down):', error);
+      console.error('Logout error:', error);
     }
   };
 
   // Auth Listener
   useEffect(() => {
-    const initAuth = async () => {
-        try {
-            const { data: { session }, error } = await supabase.auth.getSession();
-            if (session?.user) {
-                setUser(session.user);
-                fetchUserData(session.user.id);
-            }
-        } catch (e) {
-            console.warn("Supabase not reachable, starting in guest mode");
+    // Initial Session Check
+    supabase.auth.getSession().then(({ data: { session } }) => {
+        if (session?.user) {
+            setUser(session.user);
+            fetchUserData(session.user.id);
         }
-    };
-    initAuth();
+    });
 
+    // Real-time Auth State Changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       const currentUser = session?.user ?? null;
-      if (currentUser?.id !== user?.id) {
+      
+      if (event === 'SIGNED_OUT' || !currentUser) {
+          setUser(null);
+          setProfile(null);
+          setWallet(null);
+          setCurrentView('lobby');
+      } else if (currentUser.id !== user?.id) {
           setUser(currentUser);
-      }
-      if (currentUser) {
-        // Delay slightly to ensure user object is ready
-        setTimeout(() => {
-             if (!profile) fetchUserData(currentUser.id);
-        }, 100);
-      } else {
-        // Only clear if we aren't in a mock session
-        if (!user || user.id !== 'mock-admin-id') {
-            setProfile(null);
-            setWallet(null);
-        }
+          // Small delay to allow database triggers to initialize profile if new user
+          setTimeout(() => fetchUserData(currentUser.id), 500);
       }
     });
 
     return () => {
       subscription.unsubscribe();
     };
-  }, [user, profile]);
+  }, [user?.id]);
 
   const updateGameState = useCallback(() => {
     const newGame = new Chess();
@@ -226,7 +178,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
          setBlackTime(prev => Math.min(prev + increment, maxCap));
       }
 
-      // 3. Server Validation (Mocked if Supabase down)
+      // 3. Server Validation
       if (currentTier.validation === 'server') {
          submitMove('game-123', { from, to }).catch(e => console.warn("Move sync failed", e));
       }
@@ -319,7 +271,6 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       currentView,
       setView: setCurrentView,
       isAdmin,
-      loginAsMockAdmin
     }}>
       {children}
     </GameContext.Provider>

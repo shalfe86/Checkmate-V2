@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useGame } from '../context/GameContext';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
@@ -6,6 +6,7 @@ import { Board } from '../components/game/Board';
 import { evaluatePosition } from '../lib/engine';
 import { TierLevel } from '../types';
 import { TIERS } from '../constants';
+import { supabase } from '../lib/supabase';
 import { 
   ShieldAlert, Users, DollarSign, Activity, Terminal, 
   Search, Ban, AlertTriangle, Eye, Server, Cpu, Database
@@ -16,9 +17,23 @@ type AdminTab = 'overview' | 'users' | 'financials' | 'security' | 'ai-lab';
 export const AdminDashboard: React.FC = () => {
   const { user, isAdmin, selectTier, game, gameState } = useGame();
   const [activeTab, setActiveTab] = useState<AdminTab>('overview');
+  const [userList, setUserList] = useState<any[]>([]);
 
   // AI Lab State
   const [aiLabTier, setAiLabTier] = useState<TierLevel>(TierLevel.TIER_3);
+
+  // Fetch real users from profiles (Supabase)
+  useEffect(() => {
+    if (activeTab === 'users' && isAdmin) {
+      const fetchUsers = async () => {
+         const { data, error } = await supabase.from('profiles').select('*');
+         if (!error && data) {
+            setUserList(data);
+         }
+      };
+      fetchUsers();
+    }
+  }, [activeTab, isAdmin]);
 
   // If mock/bypass mode is active, user might be null but isAdmin true in context override
   if (!isAdmin) {
@@ -32,15 +47,6 @@ export const AdminDashboard: React.FC = () => {
       </div>
     );
   }
-
-  // --- MOCK DATA ---
-  const MOCK_USERS = [
-    { id: '1', username: 'ChessKing99', email: 'king@gmail.com', balance: 142.50, winRate: 65, status: 'Active' },
-    { id: '2', username: 'DeepBlue_v2', email: 'bot@rus.ru', balance: 850.00, winRate: 92, status: 'Flagged' },
-    { id: '3', username: 'CasualPlayer', email: 'john@doe.com', balance: 12.00, winRate: 45, status: 'Active' },
-    { id: '4', username: 'SpeedDemon', email: 'fast@chess.com', balance: 45.50, winRate: 55, status: 'Active' },
-    { id: '5', username: 'Suspect_Zero', email: 'hack@elite.net', balance: 1200.00, winRate: 98, status: 'Suspended' }
-  ];
 
   // Helper to start AI Lab Game
   const startAiLab = (tier: TierLevel) => {
@@ -56,12 +62,12 @@ export const AdminDashboard: React.FC = () => {
                 <div className="flex justify-between items-start">
                    <div>
                       <div className="text-xs text-slate-500 uppercase font-mono">Total Users</div>
-                      <div className="text-2xl font-bold text-white font-orbitron">42,093</div>
+                      <div className="text-2xl font-bold text-white font-orbitron">{userList.length > 0 ? userList.length : '--'}</div>
                    </div>
                    <Users className="text-slate-500" size={20} />
                 </div>
                 <div className="mt-2 text-[10px] text-green-500 flex items-center gap-1">
-                   <Activity size={10} /> +124 today
+                   <Activity size={10} /> Live Data
                 </div>
              </div>
           </Card>
@@ -70,12 +76,12 @@ export const AdminDashboard: React.FC = () => {
                 <div className="flex justify-between items-start">
                    <div>
                       <div className="text-xs text-slate-500 uppercase font-mono">Total Revenue</div>
-                      <div className="text-2xl font-bold text-yellow-500 font-orbitron">$845k</div>
+                      <div className="text-2xl font-bold text-yellow-500 font-orbitron">--</div>
                    </div>
                    <DollarSign className="text-yellow-500" size={20} />
                 </div>
                 <div className="mt-2 text-[10px] text-slate-400">
-                   Vault: $124k | Reserve: $721k
+                   Vault: -- | Reserve: --
                 </div>
              </div>
           </Card>
@@ -84,12 +90,12 @@ export const AdminDashboard: React.FC = () => {
                 <div className="flex justify-between items-start">
                    <div>
                       <div className="text-xs text-slate-500 uppercase font-mono">Active Games</div>
-                      <div className="text-2xl font-bold text-blue-400 font-orbitron">842</div>
+                      <div className="text-2xl font-bold text-blue-400 font-orbitron">--</div>
                    </div>
                    <Server className="text-blue-400" size={20} />
                 </div>
                 <div className="mt-2 text-[10px] text-blue-300">
-                   Server Load: 34%
+                   Server Load: --%
                 </div>
              </div>
           </Card>
@@ -98,7 +104,7 @@ export const AdminDashboard: React.FC = () => {
                 <div className="flex justify-between items-start">
                    <div>
                       <div className="text-xs text-slate-500 uppercase font-mono">Security Alerts</div>
-                      <div className="text-2xl font-bold text-red-500 font-orbitron">5</div>
+                      <div className="text-2xl font-bold text-red-500 font-orbitron">0</div>
                    </div>
                    <ShieldAlert className="text-red-500" size={20} />
                 </div>
@@ -124,13 +130,7 @@ export const AdminDashboard: React.FC = () => {
                 <h3 className="font-bold text-white text-sm font-orbitron">RECENT ALERTS</h3>
              </div>
              <div className="p-4 space-y-2">
-                {[1,2,3].map(i => (
-                  <div key={i} className="flex items-center gap-2 text-xs bg-white/5 p-2 rounded border border-white/5">
-                     <AlertTriangle size={12} className="text-yellow-500" />
-                     <span className="text-slate-300">High volume of rapid moves detected in Game #{1000+i}</span>
-                     <span className="ml-auto text-slate-600 font-mono">10:4{i} AM</span>
-                  </div>
-                ))}
+                <div className="text-xs text-slate-500 italic text-center p-4">No recent alerts.</div>
              </div>
           </Card>
        </div>
@@ -157,31 +157,25 @@ export const AdminDashboard: React.FC = () => {
               <thead className="bg-black/50 text-slate-400 font-mono uppercase">
                  <tr>
                     <th className="p-4">User</th>
-                    <th className="p-4">Balance</th>
-                    <th className="p-4">Win Rate</th>
-                    <th className="p-4">Status</th>
+                    <th className="p-4">Role</th>
+                    <th className="p-4">Created</th>
                     <th className="p-4 text-right">Actions</th>
                  </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
-                 {MOCK_USERS.map(u => (
+                 {userList.length === 0 ? (
+                    <tr>
+                       <td colSpan={5} className="p-8 text-center text-slate-500">No users found or loading...</td>
+                    </tr>
+                 ) : userList.map(u => (
                     <tr key={u.id} className="hover:bg-white/5 transition-colors">
                        <td className="p-4">
-                          <div className="font-bold text-white">{u.username}</div>
-                          <div className="text-slate-500">{u.email}</div>
+                          <div className="font-bold text-white">{u.username || 'Unknown'}</div>
+                          <div className="text-slate-500">{u.id}</div>
                        </td>
-                       <td className="p-4 font-mono text-yellow-500">${u.balance.toFixed(2)}</td>
-                       <td className={`p-4 font-bold ${u.winRate > 60 ? 'text-green-400' : 'text-slate-400'}`}>
-                          {u.winRate}%
-                       </td>
-                       <td className="p-4">
-                          <span className={`px-2 py-1 rounded text-[10px] uppercase font-bold border ${
-                             u.status === 'Active' ? 'bg-green-900/20 text-green-400 border-green-500/30' :
-                             u.status === 'Flagged' ? 'bg-yellow-900/20 text-yellow-400 border-yellow-500/30' :
-                             'bg-red-900/20 text-red-400 border-red-500/30'
-                          }`}>
-                             {u.status}
-                          </span>
+                       <td className="p-4 font-mono text-yellow-500">{u.role || 'user'}</td>
+                       <td className="p-4 text-slate-400">
+                          {u.created_at ? new Date(u.created_at).toLocaleDateString() : 'N/A'}
                        </td>
                        <td className="p-4 text-right">
                           <Button size="sm" variant="ghost" className="h-8 w-8 p-0">
@@ -203,8 +197,7 @@ export const AdminDashboard: React.FC = () => {
           <div>
              <h3 className="text-xl font-orbitron font-bold text-white">SECURITY OVERVIEW</h3>
              <p className="text-slate-400 text-sm mt-1 max-w-2xl">
-                Automatic heuristic analysis has flagged <strong>2 accounts</strong> for review. These accounts exhibit 
-                statistically improbable performance (Computer Aggregation Score &gt; 95%).
+                Automatic heuristic analysis has flagged <strong>0 accounts</strong> for review.
              </p>
           </div>
        </div>
@@ -216,27 +209,9 @@ export const AdminDashboard: React.FC = () => {
              </h3>
           </div>
           <div className="divide-y divide-white/5">
-             {MOCK_USERS.filter(u => u.winRate > 90).map(u => (
-                <div key={u.id} className="p-4 flex items-center justify-between hover:bg-white/5 transition-colors">
-                   <div className="flex items-center gap-4">
-                      <div className="h-10 w-10 rounded bg-slate-800 flex items-center justify-center font-bold text-slate-500">
-                         {u.username[0]}
-                      </div>
-                      <div>
-                         <div className="font-bold text-white">{u.username}</div>
-                         <div className="text-xs text-red-400 font-mono">Win Rate: {u.winRate}% | Avg Move: 0.3s</div>
-                      </div>
-                   </div>
-                   <div className="flex gap-2">
-                      <Button size="sm" variant="outline" className="text-xs border-red-500/50 text-red-400 hover:bg-red-900/20">
-                         <Database size={12} className="mr-1" /> Logs
-                      </Button>
-                      <Button size="sm" className="text-xs bg-red-600 hover:bg-red-700 text-white border-none">
-                         <Ban size={12} className="mr-1" /> SUSPEND
-                      </Button>
-                   </div>
-                </div>
-             ))}
+             <div className="p-8 text-center text-slate-500 italic text-xs">
+                No high priority cases active.
+             </div>
           </div>
        </Card>
     </div>
@@ -333,7 +308,7 @@ export const AdminDashboard: React.FC = () => {
                   <ShieldAlert size={32} /> COMMAND CENTER
                </h1>
                <p className="text-slate-500 text-sm font-mono mt-1">
-                  ADMINISTRATOR: {user?.email || 'MOCK_ADMIN'} | ID: {user?.id?.substring(0,8) || '0000'}
+                  ADMINISTRATOR: {user?.email} | ID: {user?.id?.substring(0,8)}
                </p>
             </div>
             <div className="flex gap-1 bg-white/5 p-1 rounded-lg overflow-x-auto">

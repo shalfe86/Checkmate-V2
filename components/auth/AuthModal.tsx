@@ -1,9 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import { Button } from '../ui/Button';
-import { X, Mail, Lock, Loader2, User, Globe, ScrollText, CheckCircle2, ShieldAlert } from 'lucide-react';
+import { X, Mail, Lock, Loader2, User, Globe, ScrollText, CheckCircle2 } from 'lucide-react';
 import { TermsBody } from '../legal/TermsBody';
-import { useGame } from '../../context/GameContext';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -30,7 +29,6 @@ const COUNTRIES = [
 ];
 
 export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, defaultMode = 'login' }) => {
-  const { loginAsMockAdmin } = useGame();
   const [mode, setMode] = useState<'login' | 'signup'>(defaultMode);
   
   // Form State
@@ -70,11 +68,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, defaultMo
   const handleAcceptTerms = () => {
     setAgreedTerms(true);
     setShowTermsModal(false);
-  };
-
-  const handleMockAdmin = () => {
-    loginAsMockAdmin();
-    onClose();
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -288,20 +281,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, defaultMo
               <Button type="submit" className="w-full mt-6 font-orbitron tracking-widest" disabled={loading}>
                 {loading ? <Loader2 className="animate-spin h-4 w-4" /> : (mode === 'login' ? 'AUTHENTICATE' : 'INITIATE')}
               </Button>
-
-              {/* MOCK ADMIN BYPASS - VISIBLE FOR DEV/DEMO WHEN BACKEND FAILS */}
-              <div className="mt-4 pt-4 border-t border-slate-800 flex justify-center">
-                 <button 
-                    type="button"
-                    onClick={handleMockAdmin}
-                    className="text-[10px] text-red-900 hover:text-red-500 font-mono flex items-center gap-1 transition-colors"
-                    title="Developer Bypass"
-                 >
-                    <ShieldAlert size={10} />
-                    <span>EMERGENCY ADMIN OVERRIDE</span>
-                 </button>
-              </div>
-
             </form>
 
             <div className="mt-6 text-center">

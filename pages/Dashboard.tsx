@@ -6,13 +6,13 @@ import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { 
   Trophy, Target, Zap, Shield, Crown, TrendingUp, 
-  Activity, Wallet, Lock, AlertTriangle, ArrowUpRight, LogOut
+  Activity, Wallet, Lock, AlertTriangle, ArrowUpRight
 } from 'lucide-react';
 
 export const Dashboard: React.FC = () => {
-  const { user, profile, wallet, selectTier, setView, logout } = useGame();
+  const { user, profile, wallet, selectTier, setView } = useGame();
   
-  // Mock Data for "Monthly Cap"
+  // Monthly Cap Logic
   const MONTHLY_CAP = 500;
   const currentEarnings = wallet?.monthly_earnings || 0;
   const earningsPercentage = Math.min((currentEarnings / MONTHLY_CAP) * 100, 100);
@@ -39,10 +39,6 @@ export const Dashboard: React.FC = () => {
                   <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
                   NETWORK: STABLE
               </div>
-              <Button variant="ghost" size="sm" onClick={logout} className="text-red-400 hover:bg-red-950/30 hover:text-red-300 border border-transparent hover:border-red-500/20">
-                 <LogOut size={14} className="mr-2" />
-                 Sign Out
-              </Button>
            </div>
         </div>
 
