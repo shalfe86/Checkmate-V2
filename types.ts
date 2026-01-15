@@ -1,3 +1,4 @@
+
 export enum TierLevel {
   TIER_1 = 'TIER_1',
   TIER_2 = 'TIER_2',
@@ -48,4 +49,5 @@ export interface Wallet {
   user_id: string;
   balance: number;
   currency: string;
+  monthly_earnings?: number; // For Tier 2 eligibility tracking
 }

@@ -53,7 +53,13 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .single();
 
       if (profileData) setProfile(profileData);
-      if (walletData) setWallet(walletData);
+      if (walletData) {
+        // Mock monthly earnings for dashboard demonstration if not in DB
+        setWallet({
+          ...walletData,
+          monthly_earnings: walletData.monthly_earnings ?? 124.50 // Mock value
+        });
+      }
     } catch (error) {
       console.error('Error fetching user data:', error);
     }
@@ -66,7 +72,12 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .select('*')
         .eq('user_id', user.id)
         .single();
-      if (walletData) setWallet(walletData);
+      if (walletData) {
+         setWallet({
+          ...walletData,
+          monthly_earnings: walletData.monthly_earnings ?? 124.50
+        });
+      }
     }
   };
 
