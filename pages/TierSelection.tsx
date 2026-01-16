@@ -5,7 +5,7 @@ import { Card } from '../components/ui/Card';
 import { HoloPiece } from '../components/ui/HoloPiece';
 import { Button } from '../components/ui/Button';
 import { AuthModal } from '../components/auth/AuthModal';
-import { Trophy, Clock, DollarSign, ShieldAlert, ChevronRight, Crown, FileText, Mail, Scale, Sparkles, Zap, Target, Star, Hexagon, Loader2 } from 'lucide-react';
+import { Trophy, Clock, DollarSign, ShieldAlert, ChevronRight, Crown, FileText, Mail, Scale, Sparkles, Zap, Target, Star, Hexagon, Loader2, Wallet } from 'lucide-react';
 import { TierConfig, TierLevel } from '../types';
 import { supabase } from '../lib/supabase';
 
@@ -21,6 +21,47 @@ export const TierSelection: React.FC = () => {
   
   // Loading State for Game Creation
   const [creatingGame, setCreatingGame] = useState<TierLevel | null>(null);
+
+  // Platform Stats State
+  const [stats, setStats] = useState({
+      activeGames: 0,
+      totalAccounts: 0,
+      totalGamesPlayed: 0,
+      totalPayout: 0
+  });
+
+  useEffect(() => {
+    const fetchPlatformStats = async () => {
+        try {
+            // Parallel execution for speed
+            const [
+                { count: activeCount }, 
+                { count: userCount }, 
+                { count: completedCount },
+                { data: completedGames }
+            ] = await Promise.all([
+                supabase.from('games').select('*', { count: 'exact', head: true }).eq('status', 'active'),
+                supabase.from('user_roles').select('*', { count: 'exact', head: true }).eq('role', 'user'),
+                supabase.from('games').select('*', { count: 'exact', head: true }).eq('status', 'completed'),
+                supabase.from('games').select('wager_amount').eq('status', 'completed')
+            ]);
+
+            // Calculate Total Payout (Sum of wagers for completed games as a proxy for volume)
+            // Assuming 1v1, total pot is roughly 2x wager. We'll just show total wager volume for accuracy.
+            const totalVolume = completedGames?.reduce((sum, game) => sum + (game.wager_amount || 0), 0) || 0;
+
+            setStats({
+                activeGames: activeCount || 0,
+                totalAccounts: userCount || 0,
+                totalGamesPlayed: completedCount || 0,
+                totalPayout: totalVolume
+            });
+        } catch (e) {
+            console.error("Stats fetch error", e);
+        }
+    };
+    fetchPlatformStats();
+  }, []);
 
   // Gatekeeper function
   const handleTierSelect = async (tierLevel: TierLevel) => {
@@ -310,15 +351,15 @@ export const TierSelection: React.FC = () => {
 
           </div>
 
-          {/* 4. Stats Ribbon */}
+          {/* 4. Stats Ribbon (Updated with real platform data) */}
           <div className="mt-32 border-y border-white/5 bg-white/[0.02] backdrop-blur-sm">
               <div className="container mx-auto max-w-7xl">
                 <div className="grid grid-cols-2 md:grid-cols-4 divide-x divide-white/5">
                   {[
-                    { label: 'Total Paid Out', value: '$8,450,230' },
-                    { label: 'Avg Tier 3 Payout', value: '$12,405' },
-                    { label: 'Live Games', value: '842' },
-                    { label: 'Total Accounts', value: '42,093' },
+                    { label: 'Total Matches', value: stats.totalGamesPlayed.toLocaleString() },
+                    { label: 'Total Volume', value: `$${stats.totalPayout.toFixed(2)}` }, 
+                    { label: 'Active Games', value: stats.activeGames.toLocaleString() },
+                    { label: 'Total Users', value: stats.totalAccounts.toLocaleString() },
                   ].map((stat, i) => (
                     <div key={i} className="py-8 text-center group cursor-default">
                        <div className="text-3xl font-bold font-orbitron text-white group-hover:text-gold-gradient transition-colors duration-300">{stat.value}</div>

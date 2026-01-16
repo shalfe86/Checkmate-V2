@@ -1,12 +1,13 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useGame } from '../context/GameContext';
 import { TIERS } from '../constants';
 import { TierLevel } from '../types';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
+import { supabase } from '../lib/supabase';
 import { 
   Target, Zap, Shield, Crown, TrendingUp, 
-  Activity, Wallet, Lock, AlertTriangle
+  Activity, Wallet, Lock, AlertTriangle, Swords, Flame
 } from 'lucide-react';
 
 export const Dashboard: React.FC = () => {
@@ -17,6 +18,54 @@ export const Dashboard: React.FC = () => {
   const currentEarnings = wallet?.monthly_earnings || 0;
   const earningsPercentage = Math.min((currentEarnings / MONTHLY_CAP) * 100, 100);
   const isTier2Eligible = currentEarnings < MONTHLY_CAP;
+
+  // Real User Stats State
+  const [stats, setStats] = useState({
+    totalMatches: 0,
+    wins: 0,
+    losses: 0,
+    streak: 0,
+    winRate: 0
+  });
+
+  // Fetch Stats
+  useEffect(() => {
+    if (!user) return;
+
+    const fetchStats = async () => {
+        const { data } = await supabase
+            .from('games')
+            .select('winner_id, status, created_at')
+            .or(`white_player_id.eq.${user.id},black_player_id.eq.${user.id}`)
+            .eq('status', 'completed')
+            .order('created_at', { ascending: false });
+
+        if (data) {
+            const wins = data.filter(g => g.winner_id === user.id).length;
+            const losses = data.length - wins; // Assuming draws count as non-wins for simplicity or filter draws
+            
+            // Calculate Streak
+            let currentStreak = 0;
+            for (const game of data) {
+                if (game.winner_id === user.id) {
+                    currentStreak++;
+                } else {
+                    break;
+                }
+            }
+
+            setStats({
+                totalMatches: data.length,
+                wins,
+                losses,
+                streak: currentStreak,
+                winRate: data.length > 0 ? Math.round((wins / data.length) * 100) : 0
+            });
+        }
+    };
+
+    fetchStats();
+  }, [user]);
 
   if (!user) return null;
 
@@ -47,7 +96,7 @@ export const Dashboard: React.FC = () => {
            
            {/* Wallet Card */}
            <Card className="border-yellow-500/20 bg-gradient-to-br from-slate-900 to-black">
-              <div className="p-6 relative overflow-hidden">
+              <div className="p-6 relative overflow-hidden h-full flex flex-col justify-between">
                  <div className="absolute top-0 right-0 p-4 opacity-10">
                     <Wallet size={80} />
                  </div>
@@ -56,14 +105,14 @@ export const Dashboard: React.FC = () => {
                     <div className="text-4xl font-orbitron font-bold text-white mb-4">
                        ${wallet?.balance.toFixed(2) || '0.00'}
                     </div>
-                    <div className="flex gap-2">
+                 </div>
+                 <div className="flex gap-2 relative z-10">
                        <Button size="sm" className="flex-1 bg-yellow-500/10 text-yellow-500 border border-yellow-500/50 hover:bg-yellow-500 hover:text-black">
                           Deposit
                        </Button>
                        <Button size="sm" variant="outline" className="flex-1">
                           Withdraw
                        </Button>
-                    </div>
                  </div>
               </div>
            </Card>
@@ -108,33 +157,31 @@ export const Dashboard: React.FC = () => {
               </div>
            </Card>
 
-           {/* Quick Stats */}
+           {/* Real Player Stats */}
            <Card className="border-white/10 bg-slate-900">
               <div className="p-6 grid grid-cols-2 gap-4 h-full">
                  <div className="space-y-1">
-                    <div className="text-xs text-slate-500 uppercase">Global Rank</div>
-                    <div className="text-xl font-bold text-white">#4,291</div>
+                    <div className="text-xs text-slate-500 uppercase flex items-center gap-1">
+                        <Flame size={12} className={stats.streak > 2 ? "text-orange-500" : "text-slate-600"} /> Streak
+                    </div>
+                    <div className="text-xl font-bold text-white">{stats.streak} <span className="text-xs font-normal text-slate-500">Games</span></div>
                     <div className="text-[10px] text-green-500 flex items-center gap-1">
-                       <TrendingUp size={10} /> Top 15%
+                       {stats.streak > 0 ? "On Fire" : "Cold"}
                     </div>
                  </div>
                  <div className="space-y-1">
-                    <div className="text-xs text-slate-500 uppercase">Matches</div>
-                    <div className="text-xl font-bold text-white">42</div>
+                    <div className="text-xs text-slate-500 uppercase">Win Rate</div>
+                    <div className="text-xl font-bold text-white">{stats.winRate}%</div>
                     <div className="text-[10px] text-slate-400">
-                       28 W / 14 L
+                       {stats.wins} W / {stats.losses} L
                     </div>
                  </div>
                  <div className="col-span-2 pt-2 border-t border-white/5">
                     <div className="flex items-center justify-between">
-                       <span className="text-xs text-slate-400">Current Streak</span>
-                       <div className="flex gap-1">
-                          {[1,2,3].map(i => (
-                             <div key={i} className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_5px_rgba(34,197,94,0.5)]"></div>
-                          ))}
-                          <div className="w-2 h-2 rounded-full bg-slate-700"></div>
-                          <div className="w-2 h-2 rounded-full bg-slate-700"></div>
-                       </div>
+                       <span className="text-xs text-slate-400 flex items-center gap-1">
+                            <Swords size={12} /> Total Matches
+                       </span>
+                       <span className="text-lg font-mono font-bold text-white">{stats.totalMatches}</span>
                     </div>
                  </div>
               </div>
