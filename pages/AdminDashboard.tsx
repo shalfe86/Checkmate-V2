@@ -10,7 +10,7 @@ import { supabase } from '../lib/supabase';
 import { 
   ShieldAlert, Users, DollarSign, Activity, Terminal, 
   Search, Ban, AlertTriangle, Eye, Server, Cpu, Database,
-  LayoutDashboard
+  LayoutDashboard, PlusCircle
 } from 'lucide-react';
 
 type AdminTab = 'overview' | 'users' | 'financials' | 'security' | 'ai-lab';
@@ -19,11 +19,12 @@ export const AdminDashboard: React.FC = () => {
   const { user, isAdmin, selectTier, game, gameState, setView } = useGame();
   const [activeTab, setActiveTab] = useState<AdminTab>('overview');
   const [userList, setUserList] = useState<any[]>([]);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
 
   // AI Lab State
   const [aiLabTier, setAiLabTier] = useState<TierLevel>(TierLevel.TIER_3);
 
-// Fetch real users from profiles + roles
+  // Fetch real users from profiles + roles + wallets
   useEffect(() => {
     if (activeTab === 'users' && isAdmin) {
       const fetchUsers = async () => {
@@ -37,13 +38,21 @@ export const AdminDashboard: React.FC = () => {
             .from('user_roles')
             .select('user_id, role');
 
+         // 3. Fetch Wallets
+         const { data: wallets, error: walletError } = await supabase
+            .from('wallets')
+            .select('*');
+
          if (!profileError && profiles) {
-            // 3. Merge them manually
+            // 4. Merge them manually
             const mergedUsers = profiles.map(profile => {
                const userRoleEntry = roles?.find(r => r.user_id === profile.id);
+               const userWallet = wallets?.find(w => w.user_id === profile.id);
                return {
                   ...profile,
-                  role: userRoleEntry ? userRoleEntry.role : 'user'
+                  role: userRoleEntry ? userRoleEntry.role : 'user',
+                  balance: userWallet ? userWallet.balance : 0,
+                  wallet_id: userWallet ? userWallet.id : null
                };
             });
             
@@ -52,7 +61,7 @@ export const AdminDashboard: React.FC = () => {
       };
       fetchUsers();
     }
-  }, [activeTab, isAdmin]);
+  }, [activeTab, isAdmin, refreshTrigger]);
 
   // Initialize AI Lab game when tab is active
   useEffect(() => {
@@ -79,6 +88,31 @@ export const AdminDashboard: React.FC = () => {
   const startAiLab = (tier: TierLevel) => {
     setAiLabTier(tier);
     selectTier(tier); 
+  };
+
+  // Helper to add credits
+  const handleAddCredits = async (userId: string, currentBalance: number) => {
+      const amountStr = prompt("Enter amount to credit (USD):", "10");
+      if (!amountStr) return;
+      const amount = parseFloat(amountStr);
+      if (isNaN(amount) || amount <= 0) {
+          alert("Invalid amount");
+          return;
+      }
+
+      if (!confirm(`Credit $${amount.toFixed(2)} to user?`)) return;
+
+      const { error } = await supabase
+        .from('wallets')
+        .update({ balance: currentBalance + amount })
+        .eq('user_id', userId);
+
+      if (error) {
+          alert("Failed to credit: " + error.message);
+      } else {
+          alert("Credits added successfully.");
+          setRefreshTrigger(prev => prev + 1);
+      }
   };
 
   const renderOverview = () => (
@@ -185,6 +219,7 @@ export const AdminDashboard: React.FC = () => {
                  <tr>
                     <th className="p-4">User</th>
                     <th className="p-4">Role</th>
+                    <th className="p-4">Balance</th>
                     <th className="p-4">Created</th>
                     <th className="p-4 text-right">Actions</th>
                  </tr>
@@ -192,22 +227,34 @@ export const AdminDashboard: React.FC = () => {
               <tbody className="divide-y divide-white/5">
                  {userList.length === 0 ? (
                     <tr>
-                       <td colSpan={5} className="p-8 text-center text-slate-500">No users found or loading...</td>
+                       <td colSpan={5} className="p-8 text-center text-slate-500">Loading users...</td>
                     </tr>
                  ) : userList.map(u => (
                     <tr key={u.id} className="hover:bg-white/5 transition-colors">
                        <td className="p-4">
                           <div className="font-bold text-white">{u.username || 'Unknown'}</div>
-                          <div className="text-slate-500">{u.id}</div>
+                          <div className="text-slate-500 text-[10px] font-mono">{u.id}</div>
                        </td>
                        <td className="p-4 font-mono text-yellow-500">{u.role || 'user'}</td>
+                       <td className="p-4 font-mono text-green-400">${u.balance?.toFixed(2) || '0.00'}</td>
                        <td className="p-4 text-slate-400">
                           {u.created_at ? new Date(u.created_at).toLocaleDateString() : 'N/A'}
                        </td>
                        <td className="p-4 text-right">
-                          <Button size="sm" variant="ghost" className="h-8 w-8 p-0">
-                             <Terminal size={14} />
-                          </Button>
+                          <div className="flex items-center justify-end gap-2">
+                            <Button 
+                                size="sm" 
+                                variant="secondary" 
+                                className="h-7 text-[10px] px-2"
+                                onClick={() => handleAddCredits(u.id, u.balance || 0)}
+                            >
+                                <PlusCircle size={12} className="mr-1" />
+                                Credit
+                            </Button>
+                            <Button size="sm" variant="ghost" className="h-8 w-8 p-0">
+                                <Terminal size={14} />
+                            </Button>
+                          </div>
                        </td>
                     </tr>
                  ))}

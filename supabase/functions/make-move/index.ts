@@ -1,5 +1,3 @@
-// supabase/functions/make-move/index.ts
-
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 import { Chess } from "https://esm.sh/chess.js@1.0.0-beta.8"
@@ -47,16 +45,28 @@ serve(async (req) => {
   }
 
   try {
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader) {
+      throw new Error('Missing Authorization header');
+    }
+
     const supabaseClient = createClient(
       (Deno as any).env.get('SUPABASE_URL') ?? '',
       (Deno as any).env.get('SUPABASE_ANON_KEY') ?? '',
-      { global: { headers: { Authorization: req.headers.get('Authorization')! } } }
+      { global: { headers: { Authorization: authHeader } } }
     )
 
     const { data: { user }, error: authError } = await supabaseClient.auth.getUser()
     if (authError || !user) throw new Error('Unauthorized')
 
-    const { gameId, moveFrom, moveTo, promotion } = await req.json()
+    let body;
+    try {
+      body = await req.json();
+    } catch (e) {
+      throw new Error('Invalid JSON body');
+    }
+
+    const { gameId, moveFrom, moveTo, promotion } = body;
 
     const supabaseAdmin = createClient(
       (Deno as any).env.get('SUPABASE_URL') ?? '',
@@ -72,10 +82,13 @@ serve(async (req) => {
     if (gameError || !game) throw new Error('Game not found')
 
     if (game.status !== 'active') throw new Error('Game is not active')
+    
     // STRICT RULE: You must be the White player to make a move via this API
     if (game.white_player_id !== user.id) throw new Error('Not your game')
     
     const chess = new Chess(game.fen)
+    
+    // Ensure it's white's turn (User is white)
     if (chess.turn() !== 'w') throw new Error('Not your turn')
 
     try {
@@ -85,7 +98,7 @@ serve(async (req) => {
       throw new Error('Illegal move attempted')
     }
 
-    // Check for Win/Loss
+    // Check for Win/Loss after User Move
     if (chess.isGameOver()) {
        const isWin = chess.isCheckmate() && chess.turn() === 'b'; // White mated Black
        
@@ -99,7 +112,7 @@ serve(async (req) => {
         })
         .eq('id', gameId)
 
-      return new Response(JSON.stringify({ success: true, gameOver: true }), {
+      return new Response(JSON.stringify({ success: true, gameOver: true, fen: chess.fen() }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
     }
@@ -110,6 +123,9 @@ serve(async (req) => {
       chess.move(aiMove);
     }
 
+    // Check for Win/Loss after AI Move
+    const aiWin = chess.isCheckmate() && chess.turn() === 'w'; // Black mated White
+
     // Update DB
     const { error: updateError } = await supabaseAdmin
       .from('games')
@@ -117,7 +133,7 @@ serve(async (req) => {
         fen: chess.fen(), 
         pgn: chess.pgn(),
         status: chess.isGameOver() ? 'completed' : 'active',
-        winner_id: chess.isCheckmate() ? 'AI_BOT' : null 
+        winner_id: aiWin ? 'AI_BOT' : null 
       })
       .eq('id', gameId)
 
@@ -128,6 +144,7 @@ serve(async (req) => {
     })
 
   } catch (error: any) {
+    console.error("Move Error:", error.message);
     return new Response(JSON.stringify({ error: error.message }), {
       status: 400,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

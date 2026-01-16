@@ -10,7 +10,7 @@ import { TierConfig, TierLevel } from '../types';
 import { supabase } from '../lib/supabase';
 
 export const TierSelection: React.FC = () => {
-  const { selectTier, enterGame, user, setView } = useGame();
+  const { selectTier, enterGame, user, setView, wallet } = useGame();
   const tier3 = TIERS[TierLevel.TIER_3];
   const tier2 = TIERS[TierLevel.TIER_2];
   const tier1 = TIERS[TierLevel.TIER_1];
@@ -27,10 +27,18 @@ export const TierSelection: React.FC = () => {
     const tier = TIERS[tierLevel];
     
     // If tier has an entry fee and user is not logged in, force auth
-    if (tier.entryFee > 0 && !user) {
-      setAuthMode('signup'); // Default to signup for new users trying to play
-      setIsAuthOpen(true);
-      return;
+    if (tier.entryFee > 0) {
+      if (!user) {
+        setAuthMode('signup'); // Default to signup for new users trying to play
+        setIsAuthOpen(true);
+        return;
+      }
+
+      // Check for sufficient funds
+      if (wallet && wallet.balance < tier.entryFee) {
+        alert(`Insufficient funds. You need $${tier.entryFee.toFixed(2)} but only have $${wallet.balance.toFixed(2)}. Please contact an admin to top up.`);
+        return;
+      }
     }
 
     // Check validation mode

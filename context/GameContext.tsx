@@ -215,12 +215,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
          setBlackTime(prev => Math.min(prev + increment, maxCap));
       }
 
-      // 3. Server Validation
-      if (currentTier.validation === 'server') {
-         submitMove('game-123', { from, to }).catch(e => console.warn("Move sync failed", e));
-      }
-
-      // 4. Trigger AI Move
+      // 3. Trigger AI Move (Client Side Only)
       if (moveResult.color === playerColor && !game.isGameOver()) {
          setTimeout(() => {
             const aiMove = getBestMove(game, currentTier.id);

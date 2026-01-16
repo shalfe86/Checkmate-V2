@@ -71,6 +71,16 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
     return () => { supabase.removeChannel(channel); };
   }, [gameId]);
 
+  // Prevent accidental back/close
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault(); 
+      e.returnValue = ''; // Standard legacy support
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, []);
+
   // 3. Make Move
   const onDrop = async (sourceSquare: string, targetSquare: string) => {
     // A. Optimistic Check
@@ -113,6 +123,32 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
     }
   };
 
+  // 4. Handle Forfeit
+  const handleForfeit = async () => {
+    if (!window.confirm("Are you sure you want to forfeit? You will lose this game and your wager.")) {
+      return;
+    }
+
+    toast({ title: "Forfeiting...", description: "Processing resignation." });
+
+    try {
+      const { error } = await supabase
+        .from('games')
+        .update({
+          status: 'completed',
+          winner_id: 'AI_BOT', // In this mode, leaving means the bot wins
+          // end_reason: 'resignation' // assuming db supports this or redundant
+        })
+        .eq('id', gameId);
+
+      if (error) throw error;
+      
+      onExit();
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Error", description: e.message });
+    }
+  };
+
   if (loading) return <div className="h-screen flex items-center justify-center text-white"><Loader2 className="animate-spin mr-2"/> Loading Arena...</div>;
 
   return (
@@ -143,7 +179,8 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
         </Card>
 
         <div className="mt-8">
-            <button onClick={onExit} className="text-slate-500 hover:text-white text-xs uppercase tracking-widest transition-colors">
+            <button onClick={handleForfeit} className="text-slate-500 hover:text-red-500 text-xs uppercase tracking-widest transition-colors flex items-center gap-2">
+                <AlertTriangle size={12} />
                 Forfeit & Exit
             </button>
         </div>
