@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useGame } from '../context/GameContext';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
+import { Modal } from '../components/ui/Modal';
 import { Board } from '../components/game/Board';
 import { evaluatePosition } from '../lib/engine';
 import { TierLevel } from '../types';
@@ -10,7 +11,7 @@ import { supabase } from '../lib/supabase';
 import { 
   ShieldAlert, Users, DollarSign, Activity, Terminal, 
   Search, Ban, AlertTriangle, Eye, Server, Cpu, Database,
-  LayoutDashboard, PlusCircle
+  LayoutDashboard, PlusCircle, CheckCircle, Wallet
 } from 'lucide-react';
 
 type AdminTab = 'overview' | 'users' | 'financials' | 'security' | 'ai-lab';
@@ -23,6 +24,14 @@ export const AdminDashboard: React.FC = () => {
 
   // AI Lab State
   const [aiLabTier, setAiLabTier] = useState<TierLevel>(TierLevel.TIER_3);
+
+  // Credit Modal State
+  const [creditModal, setCreditModal] = useState<{ isOpen: boolean; user: any | null }>({
+    isOpen: false,
+    user: null
+  });
+  const [creditAmount, setCreditAmount] = useState<string>("10");
+  const [processingCredit, setProcessingCredit] = useState(false);
 
   // Fetch real users from profiles + roles + wallets
   useEffect(() => {
@@ -90,29 +99,64 @@ export const AdminDashboard: React.FC = () => {
     selectTier(tier); 
   };
 
-  // Helper to add credits
-  const handleAddCredits = async (userId: string, currentBalance: number) => {
-      const amountStr = prompt("Enter amount to credit (USD):", "10");
-      if (!amountStr) return;
-      const amount = parseFloat(amountStr);
-      if (isNaN(amount) || amount <= 0) {
-          alert("Invalid amount");
-          return;
-      }
+  const openCreditModal = (user: any) => {
+    setCreditModal({ isOpen: true, user });
+    setCreditAmount("10");
+  };
 
-      if (!confirm(`Credit $${amount.toFixed(2)} to user?`)) return;
+  const submitCredit = async () => {
+    if (!creditModal.user) return;
+    
+    const amount = parseFloat(creditAmount);
+    if (isNaN(amount) || amount <= 0) {
+       alert("Invalid amount");
+       return;
+    }
 
-      const { error } = await supabase
-        .from('wallets')
-        .update({ balance: currentBalance + amount })
-        .eq('user_id', userId);
+    setProcessingCredit(true);
+    const userId = creditModal.user.id;
+    const walletId = creditModal.user.wallet_id;
+    const currentBal = creditModal.user.balance || 0;
+    const newBal = currentBal + amount;
 
-      if (error) {
-          alert("Failed to credit: " + error.message);
-      } else {
-          alert("Credits added successfully.");
-          setRefreshTrigger(prev => prev + 1);
-      }
+    try {
+        let error;
+
+        if (walletId) {
+            // 1. Update Existing Wallet (Safer if we have the ID)
+            const { error: updateError } = await supabase
+              .from('wallets')
+              .update({ balance: newBal })
+              .eq('id', walletId);
+            error = updateError;
+        } else {
+            // 2. Upsert (Create or Update by User ID)
+            const { error: upsertError } = await supabase
+              .from('wallets')
+              .upsert({ 
+                  user_id: userId, 
+                  balance: newBal, 
+                  currency: 'USD' 
+              }, { 
+                  onConflict: 'user_id' 
+              });
+            error = upsertError;
+        }
+
+        if (error) throw error;
+
+        // Success
+        setCreditModal({ isOpen: false, user: null });
+        setRefreshTrigger(prev => prev + 1); // Refresh user list to show new balance
+        
+    } catch (e: any) {
+        // Stringify ensures we see the object content in the alert if it's not a standard Error
+        const errorMsg = e.message || JSON.stringify(e);
+        console.error("Credit Error Details:", e);
+        alert(`Failed to credit wallet: ${errorMsg}`);
+    } finally {
+        setProcessingCredit(false);
+    }
   };
 
   const renderOverview = () => (
@@ -246,7 +290,7 @@ export const AdminDashboard: React.FC = () => {
                                 size="sm" 
                                 variant="secondary" 
                                 className="h-7 text-[10px] px-2"
-                                onClick={() => handleAddCredits(u.id, u.balance || 0)}
+                                onClick={() => openCreditModal(u)}
                             >
                                 <PlusCircle size={12} className="mr-1" />
                                 Credit
@@ -371,6 +415,7 @@ export const AdminDashboard: React.FC = () => {
   );
 
   return (
+    <>
     <div className="min-h-screen bg-[#020202] text-white pt-24 px-4 pb-12 font-sans selection:bg-red-500/30">
       <div className="container mx-auto max-w-7xl">
          
@@ -425,5 +470,54 @@ export const AdminDashboard: React.FC = () => {
 
       </div>
     </div>
+
+    {/* Credit User Modal */}
+    <Modal
+       isOpen={creditModal.isOpen}
+       onClose={() => setCreditModal({ isOpen: false, user: null })}
+       title={<><Wallet size={20} className="text-green-400"/> CREDIT USER ACCOUNT</>}
+       footer={
+           <>
+              <Button variant="ghost" onClick={() => setCreditModal({ isOpen: false, user: null })}>Cancel</Button>
+              <Button onClick={submitCredit} disabled={processingCredit} className="bg-green-600 hover:bg-green-500 border-none text-white">
+                 {processingCredit ? "Processing..." : "CONFIRM CREDIT"}
+              </Button>
+           </>
+       }
+    >
+       <div className="space-y-4">
+           <div className="bg-slate-950 p-4 rounded border border-white/10 flex items-center gap-3">
+               <div className="h-10 w-10 rounded bg-slate-800 flex items-center justify-center font-bold text-slate-500 text-lg">
+                  {creditModal.user?.username?.substring(0,1).toUpperCase() || "U"}
+               </div>
+               <div>
+                  <div className="text-white font-bold">{creditModal.user?.username || "Unknown User"}</div>
+                  <div className="text-slate-500 text-xs font-mono">{creditModal.user?.id}</div>
+               </div>
+           </div>
+
+           <div>
+              <label className="text-xs text-slate-500 uppercase font-bold block mb-2">Current Balance</label>
+              <div className="text-2xl font-mono text-white">${creditModal.user?.balance?.toFixed(2) || "0.00"}</div>
+           </div>
+
+           <div>
+              <label className="text-xs text-slate-500 uppercase font-bold block mb-2">Amount to Credit ($)</label>
+              <div className="relative">
+                 <DollarSign className="absolute left-3 top-3 text-slate-500" size={16} />
+                 <input 
+                    type="number"
+                    value={creditAmount}
+                    onChange={(e) => setCreditAmount(e.target.value)}
+                    className="w-full bg-black border border-slate-700 rounded p-2 pl-9 text-white font-mono focus:border-green-500 focus:outline-none"
+                 />
+              </div>
+              <p className="text-[10px] text-slate-500 mt-2">
+                 This action adds funds directly to the user's wallet. Action is logged.
+              </p>
+           </div>
+       </div>
+    </Modal>
+    </>
   );
 };

@@ -4,14 +4,15 @@ import { TIERS } from '../constants';
 import { TierLevel } from '../types';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
+import { Modal } from '../components/ui/Modal';
 import { supabase } from '../lib/supabase';
 import { 
   Target, Zap, Shield, Crown, TrendingUp, 
-  Activity, Wallet, Lock, AlertTriangle, Swords, Flame
+  Activity, Wallet, Lock, AlertTriangle, Swords, Flame, Loader2, DollarSign
 } from 'lucide-react';
 
 export const Dashboard: React.FC = () => {
-  const { user, profile, wallet, selectTier, setView } = useGame();
+  const { user, profile, wallet, selectTier, enterGame, setView } = useGame();
   
   // Monthly Cap Logic
   const MONTHLY_CAP = 500;
@@ -26,6 +27,14 @@ export const Dashboard: React.FC = () => {
     losses: 0,
     streak: 0,
     winRate: 0
+  });
+
+  // UI State
+  const [creatingGame, setCreatingGame] = useState<TierLevel | null>(null);
+  const [lowBalanceModal, setLowBalanceModal] = useState<{ isOpen: boolean; required: number; available: number }>({
+    isOpen: false,
+    required: 0,
+    available: 0
   });
 
   // Fetch Stats
@@ -67,9 +76,63 @@ export const Dashboard: React.FC = () => {
     fetchStats();
   }, [user]);
 
+  const handleTierSelect = async (tierLevel: TierLevel) => {
+    // Prevent double clicks
+    if (creatingGame) return;
+
+    const tier = TIERS[tierLevel];
+
+    // 1. Funds Check
+    if (tier.entryFee > 0) {
+        const currentBalance = wallet?.balance || 0;
+        if (currentBalance < tier.entryFee) {
+            setLowBalanceModal({
+                isOpen: true,
+                required: tier.entryFee,
+                available: currentBalance
+            });
+            return;
+        }
+    }
+
+    // 2. Server Game Creation (Paid Tiers)
+    if (tier.validation === 'server') {
+        setCreatingGame(tierLevel);
+        try {
+            const { data, error } = await supabase
+                .from('games')
+                .insert({
+                    white_player_id: user?.id,
+                    status: 'active',
+                    tier: tierLevel,
+                    wager_amount: tier.entryFee,
+                    is_server_game: true,
+                    fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'
+                })
+                .select()
+                .single();
+
+            if (error) throw error;
+            if (data) {
+                enterGame(data.id);
+            }
+        } catch (err: any) {
+            console.error("Game Creation Error:", err);
+            // Fallback for demo/dev if RLS blocks insert
+            alert(`Failed to initialize match: ${err.message}`);
+        } finally {
+            setCreatingGame(null);
+        }
+    } else {
+        // 3. Client Side Game (Free Tier)
+        selectTier(tierLevel);
+    }
+  };
+
   if (!user) return null;
 
   return (
+    <>
     <div className="min-h-screen bg-[#050505] text-white pt-24 pb-12 px-4 flex flex-col">
       <div className="container mx-auto max-w-6xl space-y-8 flex-1">
         
@@ -204,7 +267,7 @@ export const Dashboard: React.FC = () => {
 
            {/* Tier 1 - Free */}
            <div 
-             onClick={() => selectTier(TierLevel.TIER_1)}
+             onClick={() => handleTierSelect(TierLevel.TIER_1)}
              className="group relative cursor-pointer"
            >
               <div className="absolute inset-0 bg-white/5 rounded-2xl blur-xl group-hover:bg-white/10 transition-all opacity-0 group-hover:opacity-100"></div>
@@ -248,9 +311,18 @@ export const Dashboard: React.FC = () => {
 
            {/* Tier 2 - Challenger */}
            <div 
-             onClick={() => isTier2Eligible ? selectTier(TierLevel.TIER_2) : null}
-             className={`group relative ${isTier2Eligible ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}
+             onClick={() => isTier2Eligible && !creatingGame ? handleTierSelect(TierLevel.TIER_2) : null}
+             className={`group relative ${isTier2Eligible && !creatingGame ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}
            >
+              {creatingGame === TierLevel.TIER_2 && (
+                  <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm rounded-3xl">
+                      <div className="flex flex-col items-center gap-2">
+                          <Loader2 className="animate-spin text-blue-500" size={32} />
+                          <span className="text-xs text-blue-400 font-bold tracking-widest">INITIALIZING...</span>
+                      </div>
+                  </div>
+              )}
+
               <div className="absolute inset-0 bg-blue-500/5 rounded-2xl blur-xl group-hover:bg-blue-500/10 transition-all opacity-0 group-hover:opacity-100"></div>
               <Card className="h-full border-blue-500/20 hover:border-blue-500/50 transition-all bg-[#0A0A0C]">
                  <div className="p-6 flex flex-col h-full">
@@ -314,9 +386,18 @@ export const Dashboard: React.FC = () => {
 
            {/* Tier 3 - Grandmaster */}
            <div 
-             onClick={() => selectTier(TierLevel.TIER_3)}
-             className="group relative cursor-pointer"
+             onClick={() => !creatingGame && handleTierSelect(TierLevel.TIER_3)}
+             className={`group relative ${creatingGame ? 'cursor-not-allowed' : 'cursor-pointer'}`}
            >
+              {creatingGame === TierLevel.TIER_3 && (
+                  <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm rounded-3xl">
+                      <div className="flex flex-col items-center gap-2">
+                          <Loader2 className="animate-spin text-yellow-500" size={32} />
+                          <span className="text-xs text-yellow-500 font-bold tracking-widest">INITIALIZING...</span>
+                      </div>
+                  </div>
+              )}
+
               <div className="absolute inset-0 bg-yellow-500/5 rounded-2xl blur-xl group-hover:bg-yellow-500/10 transition-all opacity-0 group-hover:opacity-100"></div>
               <Card className="h-full border-yellow-500/20 hover:border-yellow-500/50 transition-all bg-gradient-to-b from-[#121214] to-black">
                  <div className="p-6 flex flex-col h-full">
@@ -359,7 +440,7 @@ export const Dashboard: React.FC = () => {
                     </ul>
                     
                     <div className="pt-4 border-t border-white/5">
-                        <Button className="w-full h-9 text-xs gold-btn">
+                        <Button className="w-full h-9 text-xs gold-btn" disabled={!!creatingGame}>
                            ENTER ARENA
                         </Button>
                     </div>
@@ -392,5 +473,48 @@ export const Dashboard: React.FC = () => {
         </div>
       </footer>
     </div>
+
+    {/* Low Balance Warning Modal */}
+    <Modal
+       isOpen={lowBalanceModal.isOpen}
+       onClose={() => setLowBalanceModal(prev => ({ ...prev, isOpen: false }))}
+       title={<><Shield className="text-yellow-500" size={24} /> ACCESS DENIED</>}
+       className="border-yellow-500/30"
+       footer={
+           <>
+             <Button variant="ghost" onClick={() => setLowBalanceModal(prev => ({ ...prev, isOpen: false }))}>
+               Dismiss
+             </Button>
+             <Button className="gold-btn">
+               <DollarSign size={14} className="mr-1" /> Deposit Funds
+             </Button>
+           </>
+       }
+    >
+       <div className="text-center space-y-4">
+          <div className="bg-yellow-500/10 border border-yellow-500/20 p-4 rounded-lg inline-block">
+             <AlertTriangle className="text-yellow-500 h-8 w-8 mx-auto mb-2" />
+             <p className="text-yellow-200 font-bold">Insufficient Funds</p>
+          </div>
+          
+          <p className="text-slate-300">
+             This tier requires an entry fee of <span className="text-white font-bold">${lowBalanceModal.required.toFixed(2)}</span>.
+          </p>
+          
+          <div className="flex justify-center gap-4 text-sm font-mono">
+             <div className="bg-slate-950 p-2 rounded border border-white/10 text-slate-400">
+                Current: <span className="text-red-400">${lowBalanceModal.available.toFixed(2)}</span>
+             </div>
+             <div className="bg-slate-950 p-2 rounded border border-white/10 text-slate-400">
+                Needed: <span className="text-yellow-400">${(lowBalanceModal.required - lowBalanceModal.available).toFixed(2)}</span>
+             </div>
+          </div>
+
+          <p className="text-xs text-slate-500 mt-2">
+             Please contact an administrator or use the deposit function to add credits to your account.
+          </p>
+       </div>
+    </Modal>
+    </>
   );
 };

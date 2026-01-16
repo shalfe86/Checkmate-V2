@@ -76,8 +76,10 @@ export const TierSelection: React.FC = () => {
       }
 
       // Check for sufficient funds
-      if (wallet && wallet.balance < tier.entryFee) {
-        alert(`Insufficient funds. You need $${tier.entryFee.toFixed(2)} but only have $${wallet.balance.toFixed(2)}. Please contact an admin to top up.`);
+      // Default to 0 if wallet is null (data not loaded yet or error)
+      const balance = wallet?.balance || 0;
+      if (balance < tier.entryFee) {
+        alert(`Insufficient funds. You need $${tier.entryFee.toFixed(2)} but only have $${balance.toFixed(2)}. Please contact an admin to top up.`);
         return;
       }
     }
