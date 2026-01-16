@@ -28,7 +28,7 @@ interface GameContextType {
   isAdmin: boolean;
 }
 
-const GameContext = createContext<GameContextType | undefined>(undefined);
+export const GameContext = createContext<GameContextType | undefined>(undefined);
 
 export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
@@ -48,9 +48,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Computed Admin Status (Strict Server Check)
   const isAdmin = profile?.role === 'admin';
 
-  // Fetch Profile and Wallet (Strict Server)
-  // Added isInitialLoad flag to handle auto-redirection for admins
-// Fetch Profile, Wallet, AND Roles
+  // Fetch Profile, Wallet, AND Roles
   const fetchUserData = async (userId: string, isInitialLoad: boolean = false) => {
     try {
       // 1. Fetch Profile
