@@ -19,8 +19,26 @@ if (!SUPABASE_URL || !SUPABASE_KEY) {
 // Initialize the Supabase client with safe values
 export const supabase = createClient(clientUrl, clientKey);
 
-// Mock Server-Side Function (Edge Function Stub)
+// Server-Side Function Call
 export const submitMove = async (gameId: string, move: Move): Promise<{ valid: boolean; fen?: string; error?: string }> => {
-  // In a real app, this would call a Supabase Edge Function
-  return { valid: true };
+  try {
+    const { data, error } = await supabase.functions.invoke('make-move', {
+      body: { 
+        gameId, 
+        moveFrom: move.from, 
+        moveTo: move.to,
+        promotion: move.promotion 
+      }
+    });
+
+    if (error) throw error;
+    
+    return { 
+      valid: true, 
+      fen: data.fen 
+    };
+  } catch (error: any) {
+    console.error('Move submission failed:', error);
+    return { valid: false, error: error.message };
+  }
 };
