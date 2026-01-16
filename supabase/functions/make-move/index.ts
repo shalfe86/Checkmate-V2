@@ -96,7 +96,7 @@ serve(async (req) => {
 
     if (gameError || !game) {
       return new Response(JSON.stringify({ success: false, error: 'Game not found' }), {
-        status: 200, // Return 200 so client sees the error message
+        status: 200, 
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
     }
@@ -117,7 +117,12 @@ serve(async (req) => {
     }
     
     // Game Logic
-    const chess = new Chess(game.fen)
+    const chess = new Chess();
+    if (game.pgn) {
+        chess.loadPgn(game.pgn);
+    } else {
+        chess.load(game.fen);
+    }
     
     // Turn Check
     if (chess.turn() !== 'w') {
@@ -154,7 +159,7 @@ serve(async (req) => {
         })
         .eq('id', gameId)
 
-      return new Response(JSON.stringify({ success: true, gameOver: true, winner: isWin ? 'user' : 'draw', fen: chess.fen() }), {
+      return new Response(JSON.stringify({ success: true, gameOver: true, winner: isWin ? 'user' : 'draw', fen: chess.fen(), pgn: chess.pgn() }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
     }
@@ -186,7 +191,7 @@ serve(async (req) => {
 
     if (updateError) throw updateError
 
-    return new Response(JSON.stringify({ success: true, fen: chess.fen() }), {
+    return new Response(JSON.stringify({ success: true, fen: chess.fen(), pgn: chess.pgn() }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     })
 

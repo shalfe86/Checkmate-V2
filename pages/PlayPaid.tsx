@@ -26,6 +26,10 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
   const [loading, setLoading] = useState(true);
   const [tierConfig, setTierConfig] = useState<TierConfig | null>(null);
   
+  // Start Sequence State
+  const [countdown, setCountdown] = useState<number | null>(null);
+  const [isGameActive, setIsGameActive] = useState(false);
+
   // Timer State
   const [whiteTime, setWhiteTime] = useState(0);
   const [blackTime, setBlackTime] = useState(0);
@@ -44,18 +48,39 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
 
       if (data) {
         try {
-            const loadedGame = new Chess(data.fen || undefined);
+            // Priority: Load PGN if available to preserve history
+            const loadedGame = new Chess();
+            if (data.pgn) {
+                loadedGame.loadPgn(data.pgn);
+            } else if (data.fen) {
+                loadedGame.load(data.fen);
+            }
+
             setGame(loadedGame);
             
             // Set Tier Config
             if (data.tier && TIERS[data.tier as TierLevel]) {
                 const config = TIERS[data.tier as TierLevel];
                 setTierConfig(config);
-                setWhiteTime(config.timeControl.initial);
-                setBlackTime(config.timeControl.initial);
+                // Only set times if new game, otherwise should sync time from DB if supported (not in schema yet)
+                // For now, reset to initial if brand new
+                if (loadedGame.history().length === 0) {
+                   setWhiteTime(config.timeControl.initial);
+                   setBlackTime(config.timeControl.initial);
+                }
             }
+
+            // Determine Start State
+            // If moves have been made, resume immediately. If not, start countdown.
+            if (loadedGame.history().length > 0) {
+                setIsGameActive(true);
+            } else {
+                setCountdown(3);
+                setIsGameActive(false);
+            }
+
         } catch (e) {
-            console.error("Loaded invalid FEN:", data.fen);
+            console.error("Loaded invalid Game Data:", e);
         }
         setLoading(false);
       } else {
@@ -66,9 +91,24 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
     fetchGame();
   }, [gameId]);
 
-  // 2. Timer Logic (Client Simulation of Server Time)
+  // 2. Countdown Logic
   useEffect(() => {
-    if (loading || !tierConfig || game.isGameOver()) {
+    if (countdown !== null && countdown > 0) {
+        const timer = setTimeout(() => {
+            setCountdown(prev => (prev !== null ? prev - 1 : null));
+        }, 1000);
+        return () => clearTimeout(timer);
+    } else if (countdown === 0) {
+        setIsGameActive(true);
+        setCountdown(null);
+        toast({ title: "START", description: "Protocol Engaged." });
+    }
+  }, [countdown]);
+
+  // 3. Timer Logic (Client Simulation of Server Time)
+  useEffect(() => {
+    // Only run timer if game is fully active, not loading, and not over
+    if (loading || !tierConfig || game.isGameOver() || !isGameActive) {
         if (timerInterval.current) clearInterval(timerInterval.current);
         return;
     }
@@ -86,9 +126,48 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
     return () => {
         if (timerInterval.current) clearInterval(timerInterval.current);
     };
-  }, [game.turn(), loading, tierConfig]);
+  }, [game.turn(), loading, tierConfig, isGameActive]);
 
-  // 3. Realtime Listener
+  // 4. Timer Expiration Handling
+  useEffect(() => {
+      if (!isGameActive || game.isGameOver()) return;
+
+      if (whiteTime <= 0) {
+          handleTimeout('white');
+      } else if (blackTime <= 0) {
+          handleTimeout('black');
+      }
+  }, [whiteTime, blackTime, isGameActive]);
+
+  const handleTimeout = async (loser: 'white' | 'black') => {
+      setIsGameActive(false);
+      if (timerInterval.current) clearInterval(timerInterval.current);
+      
+      const winner = loser === 'white' ? 'AI_BOT' : 'USER';
+      toast({ 
+          title: "TIME EXPIRED", 
+          description: loser === 'white' ? "You ran out of time." : "Opponent timed out.", 
+          variant: "destructive" 
+      });
+
+      // Update DB
+      try {
+          // If User lost (White), mark as completed with AI winner
+          if (loser === 'white') {
+             await supabase.from('games').update({ status: 'completed', winner_id: 'AI_BOT' }).eq('id', gameId);
+          } else {
+             // If AI lost (Black), User wins
+             const { data: { user } } = await supabase.auth.getUser();
+             if (user) {
+                 await supabase.from('games').update({ status: 'completed', winner_id: user.id }).eq('id', gameId);
+             }
+          }
+      } catch (e) {
+          console.error("Failed to sync timeout", e);
+      }
+  };
+
+  // 5. Realtime Listener
   useEffect(() => {
     const channel = supabase
       .channel('game_updates')
@@ -97,26 +176,34 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
         { event: 'UPDATE', schema: 'public', table: 'games', filter: `id=eq.${gameId}` },
         (payload) => {
           const newFen = payload.new.fen;
+          const newPgn = payload.new.pgn;
+
           try {
-              // Only update if FEN is different to prevent jitter or overwriting optimistic updates
-              // We check if the server FEN is actually ahead or different in a way that matters
-              if (newFen !== game.fen()) {
-                  // If we are currently "thinking" (optimistic move made), we might want to wait for our own move validation
-                  // But usually server FEN is truth.
-                  const newGame = new Chess(newFen);
+              // Priority: Use PGN to update state to preserve history
+              if (newPgn && newPgn !== game.pgn()) {
+                  const newGame = new Chess();
+                  newGame.loadPgn(newPgn);
                   setGame(newGame);
                   
-                  // Simple increment logic for opponent (Client side viz only)
-                  if (tierConfig) {
-                     // If it's now White's turn, it means Black just moved, so add increment to Black
-                     if (newGame.turn() === 'w') {
-                        setBlackTime(t => Math.min(t + tierConfig.timeControl.increment, tierConfig.timeControl.maxCap));
-                     }
+                  if (!isGameActive && newGame.history().length > 0) {
+                      setIsGameActive(true);
+                      setCountdown(null);
                   }
 
-                  if (newGame.isGameOver()) {
-                     toast({ title: "Game Over", description: "Match concluded." });
+                  // Increment Logic
+                  if (tierConfig && newGame.turn() === 'w') {
+                      setBlackTime(t => Math.min(t + tierConfig.timeControl.increment, tierConfig.timeControl.maxCap));
                   }
+              } 
+              // Fallback to FEN if PGN missing (shouldn't happen with new Edge Function)
+              else if (newFen && newFen !== game.fen()) {
+                  const newGame = new Chess(newFen);
+                  setGame(newGame);
+              }
+
+              if (payload.new.status === 'completed') {
+                  setIsGameActive(false);
+                  toast({ title: "Game Over", description: "Match concluded." });
               }
           } catch(e) {
               console.error("Realtime update error", e);
@@ -126,7 +213,7 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
-  }, [gameId, game, tierConfig]);
+  }, [gameId, game, tierConfig, isGameActive]);
 
   // Prevent accidental back/close
   useEffect(() => {
@@ -138,20 +225,26 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, []);
 
-  // 4. Make Move
+  // 6. Make Move
   const onDrop = async (sourceSquare: string, targetSquare: string) => {
+    if (!isGameActive) return;
+
     // A. Optimistic Local Validation & Update
+    const prevPgn = game.pgn();
     const prevFen = game.fen();
+
     try {
-      const tempGame = new Chess(prevFen);
+      // Use a clone to validate move locally
+      const tempGame = new Chess();
+      if (prevPgn) tempGame.loadPgn(prevPgn);
+      else tempGame.load(prevFen);
+
       const move = tempGame.move({ from: sourceSquare, to: targetSquare, promotion: 'q' });
       
-      if (!move) return; // Invalid move locally, do nothing
+      if (!move) return; 
       
-      // Apply Optimistic Update
       setGame(tempGame);
       
-      // Add increment for Self (White)
       if (tierConfig) {
          setWhiteTime(t => Math.min(t + tierConfig.timeControl.increment, tierConfig.timeControl.maxCap));
       }
@@ -169,36 +262,51 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
         }
       });
 
-      if (error) {
-        throw new Error(error.message || "Connection failed");
-      }
-
-      if (data && !data.success) {
-         throw new Error(data.error || "Move rejected by referee");
-      }
+      if (error) throw new Error(error.message || "Connection failed");
+      if (data && !data.success) throw new Error(data.error || "Move rejected by referee");
       
-      // Optional: Sync FEN exactly if returned
-      if (data.fen && data.fen !== game.fen()) {
-          setGame(new Chess(data.fen));
+      // Update with server PGN to ensure full sync
+      if (data.pgn) {
+          const syncedGame = new Chess();
+          syncedGame.loadPgn(data.pgn);
+          setGame(syncedGame);
       }
 
     } catch (e: any) {
       console.error("Move Execution Error:", e);
       // Revert on Error
-      setGame(new Chess(prevFen));
+      const revertGame = new Chess();
+      if (prevPgn) revertGame.loadPgn(prevPgn);
+      else revertGame.load(prevFen);
+      
+      setGame(revertGame);
       toast({ variant: "destructive", title: "Action Voided", description: e.message });
     }
   };
 
-  // 5. Handle Forfeit / Cancel
+  // 7. Handle Forfeit / Cancel
   const handleExitAction = async () => {
     const isFirstMove = game.history().length === 0;
     
     if (isFirstMove) {
         if (window.confirm("Cancel this match? No wager will be lost.")) {
-            // For a 'cancelled' state, we might delete or update status. 
-            // For safety with current DB schema, we'll just exit.
-            onExit();
+            // Using finally to ensure we exit even if the network call fails (e.g. duplicate request)
+            try {
+                // Update DB to cancelled. 
+                const { error } = await supabase
+                    .from('games')
+                    .update({ status: 'cancelled' })
+                    .eq('id', gameId);
+                
+                if (error) {
+                    console.warn("DB Cancel Error:", error);
+                    // If update fails, we might still want to exit, but let's log it.
+                }
+            } catch (e) {
+                console.error("Cancel Exception:", e);
+            } finally {
+                onExit();
+            }
         }
     } else {
         if (window.confirm("WARNING: Forfeiting will result in a LOSS and loss of wager. Are you sure?")) {
@@ -222,8 +330,8 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
 
   if (loading || !tierConfig) return <div className="h-screen flex items-center justify-center text-white bg-slate-950"><Loader2 className="animate-spin mr-2"/> Secure Link Established...</div>;
 
-  const isPlayerTurn = game.turn() === 'w'; // Assuming User is always White for now in Single Player
-  const history = game.history();
+  const isPlayerTurn = game.turn() === 'w'; 
+  const history = game.history(); 
   const hasMoved = history.length > 0;
 
   return (
@@ -231,6 +339,18 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
         
         {/* Background Grid */}
         <div className="absolute inset-0 pointer-events-none opacity-10 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')]"></div>
+
+        {/* Countdown Overlay */}
+        {countdown !== null && (
+            <div className="absolute inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center animate-in fade-in duration-300">
+                <div className="text-center">
+                    <div className="text-[12rem] font-black font-orbitron text-yellow-500 animate-pulse drop-shadow-[0_0_50px_rgba(234,179,8,0.5)] leading-none">
+                        {countdown}
+                    </div>
+                    <div className="text-xl text-white font-mono tracking-[0.5em] mt-4 uppercase">Initializing Protocol</div>
+                </div>
+            </div>
+        )}
 
         {/* Notification Toast */}
         {notification && (
@@ -265,9 +385,9 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
                 </div>
             </div>
             <div className="flex items-center gap-2 bg-slate-900 border border-white/10 px-4 py-2 rounded-lg">
-                <div className={`h-2 w-2 rounded-full ${isPlayerTurn ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
+                <div className={`h-2 w-2 rounded-full ${isPlayerTurn && isGameActive ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
                 <span className="text-xs font-bold tracking-widest text-slate-300">
-                    {isPlayerTurn ? "YOUR TURN" : "AI THINKING"}
+                    {isGameActive ? (isPlayerTurn ? "YOUR TURN" : "AI THINKING") : (countdown !== null ? "PREPARING" : "STANDBY")}
                 </span>
             </div>
         </div>
@@ -319,7 +439,7 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
                     <Timer 
                         time={blackTime} 
                         maxTime={tierConfig.timeControl.maxCap} 
-                        isActive={!isPlayerTurn && !game.isGameOver()} 
+                        isActive={isGameActive && !isPlayerTurn && !game.isGameOver()} 
                         label="AI"
                     />
                 </div>
@@ -327,7 +447,7 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
                 {/* The Board */}
                 <Card className="p-2 border-yellow-500/10 bg-slate-900 shadow-[0_0_100px_-20px_rgba(0,0,0,0.7)] relative group">
                     {/* Glow effect on turn */}
-                    <div className={`absolute -inset-1 bg-gradient-to-r from-yellow-500/20 to-transparent blur-xl transition-opacity duration-500 ${isPlayerTurn ? 'opacity-100' : 'opacity-0'}`}></div>
+                    <div className={`absolute -inset-1 bg-gradient-to-r from-yellow-500/20 to-transparent blur-xl transition-opacity duration-500 ${isPlayerTurn && isGameActive ? 'opacity-100' : 'opacity-0'}`}></div>
                     
                     <div className="relative z-10">
                         <Board 
@@ -352,7 +472,7 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
                     <Timer 
                         time={whiteTime} 
                         maxTime={tierConfig.timeControl.maxCap} 
-                        isActive={isPlayerTurn && !game.isGameOver()} 
+                        isActive={isGameActive && isPlayerTurn && !game.isGameOver()} 
                         label="YOU"
                     />
                 </div>
