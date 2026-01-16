@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
-import { Crown, Menu, User, ChevronRight, LogOut, Wallet, ShieldAlert } from 'lucide-react';
+import { Crown, Menu, User, ChevronRight, LogOut, Wallet, ShieldAlert, LayoutDashboard } from 'lucide-react';
 import { Button } from './Button';
 import { AuthModal } from '../auth/AuthModal';
 import { useGame } from '../../context/GameContext';
 
 export const Navbar: React.FC = () => {
-  const { user, profile, wallet, logout, isAdmin, setView } = useGame();
+  const { user, profile, wallet, logout, isAdmin, setView, currentView } = useGame();
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
 
@@ -41,13 +41,25 @@ export const Navbar: React.FC = () => {
               
               {/* Admin Access */}
               {isAdmin && (
-                <button
-                   onClick={() => setView('admin')}
-                   className="flex items-center gap-2 bg-red-900/30 border border-red-500/30 text-red-400 px-3 py-1.5 rounded-full hover:bg-red-900/50 hover:text-white transition-all text-xs font-bold uppercase tracking-wider"
-                >
-                  <ShieldAlert size={14} />
-                  <span className="hidden md:inline">Command</span>
-                </button>
+                 currentView === 'admin' ? (
+                    <button
+                       onClick={() => setView('lobby')}
+                       className="flex items-center gap-2 bg-slate-800 border border-slate-700 text-slate-300 px-3 py-1.5 rounded-full hover:bg-slate-700 hover:text-white transition-all text-xs font-bold uppercase tracking-wider"
+                       title="Switch to User Dashboard"
+                    >
+                      <LayoutDashboard size={14} />
+                      <span className="hidden md:inline">User View</span>
+                    </button>
+                 ) : (
+                    <button
+                       onClick={() => setView('admin')}
+                       className="flex items-center gap-2 bg-red-900/30 border border-red-500/30 text-red-400 px-3 py-1.5 rounded-full hover:bg-red-900/50 hover:text-white transition-all text-xs font-bold uppercase tracking-wider"
+                       title="Switch to Admin Command"
+                    >
+                      <ShieldAlert size={14} />
+                      <span className="hidden md:inline">Command</span>
+                    </button>
+                 )
               )}
 
               {/* Balance Display */}

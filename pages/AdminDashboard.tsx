@@ -9,13 +9,14 @@ import { TIERS } from '../constants';
 import { supabase } from '../lib/supabase';
 import { 
   ShieldAlert, Users, DollarSign, Activity, Terminal, 
-  Search, Ban, AlertTriangle, Eye, Server, Cpu, Database
+  Search, Ban, AlertTriangle, Eye, Server, Cpu, Database,
+  LayoutDashboard
 } from 'lucide-react';
 
 type AdminTab = 'overview' | 'users' | 'financials' | 'security' | 'ai-lab';
 
 export const AdminDashboard: React.FC = () => {
-  const { user, isAdmin, selectTier, game, gameState } = useGame();
+  const { user, isAdmin, selectTier, game, gameState, setView } = useGame();
   const [activeTab, setActiveTab] = useState<AdminTab>('overview');
   const [userList, setUserList] = useState<any[]>([]);
 
@@ -34,6 +35,14 @@ export const AdminDashboard: React.FC = () => {
       fetchUsers();
     }
   }, [activeTab, isAdmin]);
+
+  // Initialize AI Lab game when tab is active
+  useEffect(() => {
+    if (activeTab === 'ai-lab') {
+      selectTier(aiLabTier);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
 
   // If mock/bypass mode is active, user might be null but isAdmin true in context override
   if (!isAdmin) {
@@ -286,14 +295,12 @@ export const AdminDashboard: React.FC = () => {
           </Card>
        </div>
 
-       {/* Board */}
-       <div className="lg:col-span-2 flex items-center justify-center bg-black/50 rounded-xl border border-white/5 relative">
-          <div className="absolute top-4 right-4 bg-black/80 px-3 py-1 rounded text-xs text-yellow-500 font-mono border border-yellow-500/20">
+       {/* Board - Fixed Alignment/Sizing */}
+       <div className="lg:col-span-2 flex items-center justify-center bg-black/50 rounded-xl border border-white/5 relative p-4">
+          <div className="absolute top-4 right-4 bg-black/80 px-3 py-1 rounded text-xs text-yellow-500 font-mono border border-yellow-500/20 z-10">
              DEBUG MODE ACTIVE
           </div>
-          <div className="scale-90">
-             <Board />
-          </div>
+          <Board className="w-[500px] h-[500px]" />
        </div>
     </div>
   );
@@ -311,27 +318,31 @@ export const AdminDashboard: React.FC = () => {
                   ADMINISTRATOR: {user?.email} | ID: {user?.id?.substring(0,8)}
                </p>
             </div>
-            <div className="flex gap-1 bg-white/5 p-1 rounded-lg overflow-x-auto">
-               {[
-                 { id: 'overview', icon: Activity, label: 'Overview' },
-                 { id: 'users', icon: Users, label: 'Users' },
-                 { id: 'financials', icon: DollarSign, label: 'Financials' },
-                 { id: 'security', icon: AlertTriangle, label: 'Security' },
-                 { id: 'ai-lab', icon: Cpu, label: 'AI Lab' }
-               ].map((tab) => (
-                  <button
-                    key={tab.id}
-                    onClick={() => setActiveTab(tab.id as AdminTab)}
-                    className={`flex items-center gap-2 px-4 py-2 rounded text-xs font-bold uppercase transition-all whitespace-nowrap ${
-                       activeTab === tab.id 
-                       ? 'bg-red-600 text-white shadow-lg shadow-red-900/20' 
-                       : 'text-slate-400 hover:text-white hover:bg-white/5'
-                    }`}
-                  >
-                     <tab.icon size={14} />
-                     <span className="hidden md:inline">{tab.label}</span>
-                  </button>
-               ))}
+            
+            <div className="flex items-center gap-4">
+               {/* Tab Selection */}
+               <div className="flex gap-1 bg-white/5 p-1 rounded-lg overflow-x-auto">
+                  {[
+                    { id: 'overview', icon: Activity, label: 'Overview' },
+                    { id: 'users', icon: Users, label: 'Users' },
+                    { id: 'financials', icon: DollarSign, label: 'Financials' },
+                    { id: 'security', icon: AlertTriangle, label: 'Security' },
+                    { id: 'ai-lab', icon: Cpu, label: 'AI Lab' }
+                  ].map((tab) => (
+                     <button
+                       key={tab.id}
+                       onClick={() => setActiveTab(tab.id as AdminTab)}
+                       className={`flex items-center gap-2 px-4 py-2 rounded text-xs font-bold uppercase transition-all whitespace-nowrap ${
+                          activeTab === tab.id 
+                          ? 'bg-red-600 text-white shadow-lg shadow-red-900/20' 
+                          : 'text-slate-400 hover:text-white hover:bg-white/5'
+                       }`}
+                     >
+                        <tab.icon size={14} />
+                        <span className="hidden md:inline">{tab.label}</span>
+                     </button>
+                  ))}
+               </div>
             </div>
          </div>
 

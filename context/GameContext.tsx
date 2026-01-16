@@ -51,7 +51,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Fetch Profile and Wallet (Strict Server)
   // Added isInitialLoad flag to handle auto-redirection for admins
 // Fetch Profile, Wallet, AND Roles
-  const fetchUserData = async (userId: string) => {
+  const fetchUserData = async (userId: string, isInitialLoad: boolean = false) => {
     try {
       // 1. Fetch Profile
       const { data: profileData, error: profileError } = await supabase
@@ -72,6 +72,11 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (!profileError && profileData) {
         // We artificially attach the role to the profile object for the app to use
         setProfile({ ...profileData, role: userRole });
+
+        // Auto-redirect admin on login
+        if (isInitialLoad && userRole === 'admin') {
+           setCurrentView('admin');
+        }
       }
       
       // 3. Fetch Wallet
