@@ -5,7 +5,7 @@ import { Board } from '../components/game/Board';
 import { Card } from '../components/ui/Card';
 import { Loader2, ShieldCheck, AlertTriangle } from 'lucide-react';
 
-// Simple toast notification for this component
+// Internal Toast implementation to replace missing component
 const useInternalToast = () => {
   const [notification, setNotification] = useState<{title: string, desc: string, type: 'info' | 'error'} | null>(null);
   
@@ -17,16 +17,15 @@ const useInternalToast = () => {
   return { toast, notification };
 };
 
-// This component expects the ID of the game you are playing
 export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => void }) => {
   const [game, setGame] = useState(new Chess());
   const [loading, setLoading] = useState(true);
   const { toast, notification } = useInternalToast();
-  
-  // 1. Initial Load: Get the current board state from the DB
+
+  // 1. Initial Load
   useEffect(() => {
     const fetchGame = async () => {
-      const { data, error } = await supabase
+      const { data } = await supabase
         .from('games')
         .select('*')
         .eq('id', gameId)
@@ -34,21 +33,20 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
 
       if (data) {
         try {
-           const loadedGame = new Chess(data.fen || undefined);
-           setGame(loadedGame);
+            const loadedGame = new Chess(data.fen || undefined);
+            setGame(loadedGame);
         } catch (e) {
-           console.error("Invalid FEN loaded", e);
+            console.error("Loaded invalid FEN:", data.fen);
         }
         setLoading(false);
       } else {
-        // Fallback for demo/dev if game doesn't exist yet
         setLoading(false);
       }
     };
     fetchGame();
   }, [gameId]);
 
-  // 2. Realtime Listener: Watch for moves from the Referee/Opponent
+  // 2. Realtime Listener
   useEffect(() => {
     const channel = supabase
       .channel('game_updates')
@@ -56,13 +54,15 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'games', filter: `id=eq.${gameId}` },
         (payload) => {
-          // The database just changed! Update our board.
           const newFen = payload.new.fen;
-          const newGame = new Chess(newFen);
-          setGame(newGame);
-          
-          if (newGame.isGameOver()) {
-             toast({ title: "Game Over!", description: "Check the dashboard for results." });
+          try {
+              const newGame = new Chess(newFen);
+              setGame(newGame);
+              if (newGame.isGameOver()) {
+                 toast({ title: "Game Over!", description: "Check your dashboard for the results." });
+              }
+          } catch(e) {
+              console.error("Realtime update error", e);
           }
         }
       )
@@ -71,47 +71,45 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
     return () => { supabase.removeChannel(channel); };
   }, [gameId]);
 
-  // 3. Make Move: Send it to the Referee (Edge Function)
+  // 3. Make Move
   const onDrop = async (sourceSquare: string, targetSquare: string) => {
-    // A. Optimistic Check (Fail fast if move is obviously bad)
+    // A. Optimistic Check
     try {
       const tempGame = new Chess(game.fen());
       const move = tempGame.move({ from: sourceSquare, to: targetSquare, promotion: 'q' });
       if (!move) return;
     } catch { return; }
 
-    // Show a small verification feedback
     toast({ title: "Verifying...", description: "Sending move to referee.", variant: 'default' });
 
     try {
-        const { data, error } = await supabase.functions.invoke('make-move', {
-           body: {
-             gameId: gameId,
-             moveFrom: sourceSquare,
-             moveTo: targetSquare,
-             promotion: 'q'
-           }
-        });
+      const { data, error } = await supabase.functions.invoke('make-move', {
+        body: {
+          gameId: gameId,
+          moveFrom: sourceSquare,
+          moveTo: targetSquare,
+          promotion: 'q'
+        }
+      });
 
-        if (error || (data && !data.success)) {
-            const errorMsg = error?.message || data?.error || "Validation failed";
-            toast({ variant: "destructive", title: "Referee says NO", description: errorMsg });
-            
-            // Reload board to ensure we are in sync (revert optimistic move if any)
-            const resetGame = new Chess(game.fen());
-            setGame(resetGame);
-            return;
-        }
+      if (error || (data && !data.success)) {
+        const msg = error?.message || data?.error || "Invalid Move";
+        toast({ variant: "destructive", title: "Referee says NO", description: msg });
         
-        // If success, we update local state immediately for responsiveness, 
-        // though the realtime listener will confirm it shortly.
-        if (data.fen) {
-           setGame(new Chess(data.fen));
-        }
+        // Revert board
+        const resetGame = new Chess(game.fen());
+        setGame(resetGame);
+        return;
+      }
+      
+      // If server returns new FEN immediately, use it
+      if (data.fen) {
+          setGame(new Chess(data.fen));
+      }
 
     } catch (e: any) {
-        console.error(e);
-        toast({ variant: "destructive", title: "Error", description: e.message });
+      console.error("Execution Error:", e);
+      toast({ variant: "destructive", title: "Error", description: "Network error" });
     }
   };
 
@@ -138,13 +136,13 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
         
         <Card className="p-1 border-yellow-500/20 bg-slate-900 shadow-[0_0_50px_-10px_rgba(234,179,8,0.2)]">
             <Board 
-                fen={game.fen()}
-                onMove={onDrop}
+                fen={game.fen()} 
+                onMove={onDrop} 
                 orientation="white"
             />
         </Card>
 
-        <div className="mt-8 flex gap-4">
+        <div className="mt-8">
             <button onClick={onExit} className="text-slate-500 hover:text-white text-xs uppercase tracking-widest transition-colors">
                 Forfeit & Exit
             </button>
