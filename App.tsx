@@ -7,9 +7,10 @@ import { Rules } from './pages/Rules';
 import { Terms } from './pages/Terms';
 import { AdminDashboard } from './pages/AdminDashboard';
 import { Navbar } from './components/ui/Navbar';
+import { PlayPaid } from './pages/PlayPaid';
 
 const AppContent: React.FC = () => {
-  const { currentTier, user, currentView } = useGame();
+  const { currentTier, user, currentView, activeGameId, exitGame } = useGame();
 
   // 1. Admin Dashboard View (High Priority if selected)
   if (currentView === 'admin' && user) {
@@ -21,12 +22,17 @@ const AppContent: React.FC = () => {
     );
   }
 
-  // 2. Game View
+  // 2. Active Server Game View (Paid)
+  if (activeGameId) {
+    return <PlayPaid gameId={activeGameId} onExit={exitGame} />;
+  }
+
+  // 3. Client Game View (Free Tier)
   if (currentTier) {
     return <GameRoom />;
   }
 
-  // 3. Rules View
+  // 4. Rules View
   if (currentView === 'rules') {
     return (
       <div className="min-h-screen bg-slate-950 text-slate-50 font-sans selection:bg-yellow-500/30 flex flex-col">
@@ -36,7 +42,7 @@ const AppContent: React.FC = () => {
     );
   }
 
-  // 4. Terms View
+  // 5. Terms View
   if (currentView === 'terms') {
     return (
       <div className="min-h-screen bg-slate-950 text-slate-50 font-sans selection:bg-yellow-500/30 flex flex-col">
@@ -46,7 +52,7 @@ const AppContent: React.FC = () => {
     );
   }
 
-  // 5. Authenticated User Dashboard
+  // 6. Authenticated User Dashboard
   if (user) {
     return (
       <div className="min-h-screen bg-slate-950 text-slate-50 font-sans selection:bg-yellow-500/30 flex flex-col">
@@ -56,7 +62,7 @@ const AppContent: React.FC = () => {
     );
   }
 
-  // 6. Guest Landing Page
+  // 7. Guest Landing Page
   return (
     <div className="min-h-screen bg-slate-950 text-slate-50 font-sans selection:bg-yellow-500/30 flex flex-col">
       <Navbar />

@@ -5,11 +5,12 @@ import { Card } from '../components/ui/Card';
 import { HoloPiece } from '../components/ui/HoloPiece';
 import { Button } from '../components/ui/Button';
 import { AuthModal } from '../components/auth/AuthModal';
-import { Trophy, Clock, DollarSign, ShieldAlert, ChevronRight, Crown, FileText, Mail, Scale, Sparkles, Zap, Target, Star, Hexagon } from 'lucide-react';
+import { Trophy, Clock, DollarSign, ShieldAlert, ChevronRight, Crown, FileText, Mail, Scale, Sparkles, Zap, Target, Star, Hexagon, Loader2 } from 'lucide-react';
 import { TierConfig, TierLevel } from '../types';
+import { supabase } from '../lib/supabase';
 
 export const TierSelection: React.FC = () => {
-  const { selectTier, user, setView } = useGame();
+  const { selectTier, enterGame, user, setView } = useGame();
   const tier3 = TIERS[TierLevel.TIER_3];
   const tier2 = TIERS[TierLevel.TIER_2];
   const tier1 = TIERS[TierLevel.TIER_1];
@@ -17,9 +18,12 @@ export const TierSelection: React.FC = () => {
   // Auth Modal State for Gated Access
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
+  
+  // Loading State for Game Creation
+  const [creatingGame, setCreatingGame] = useState<TierLevel | null>(null);
 
   // Gatekeeper function
-  const handleTierSelect = (tierLevel: TierLevel) => {
+  const handleTierSelect = async (tierLevel: TierLevel) => {
     const tier = TIERS[tierLevel];
     
     // If tier has an entry fee and user is not logged in, force auth
@@ -29,7 +33,38 @@ export const TierSelection: React.FC = () => {
       return;
     }
 
-    selectTier(tierLevel);
+    // Check validation mode
+    if (tier.validation === 'server') {
+        // PAID TIER: Create game on server
+        setCreatingGame(tierLevel);
+        try {
+            const { data, error } = await supabase
+                .from('games')
+                .insert({
+                    white_player_id: user?.id,
+                    status: 'active',
+                    tier: tierLevel,
+                    wager_amount: tier.entryFee,
+                    is_server_game: true,
+                    fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'
+                })
+                .select()
+                .single();
+
+            if (error) throw error;
+            if (data) {
+                enterGame(data.id);
+            }
+        } catch (err: any) {
+            console.error("Game Creation Error:", err);
+            alert(`Failed to initialize match: ${err.message}`);
+        } finally {
+            setCreatingGame(null);
+        }
+    } else {
+        // FREE TIER: Client side
+        selectTier(tierLevel);
+    }
   };
 
   // Mouse Parallax Logic
@@ -152,10 +187,15 @@ export const TierSelection: React.FC = () => {
 
                           <Button 
                             onClick={() => handleTierSelect(TierLevel.TIER_3)}
+                            disabled={creatingGame !== null}
                             className="w-full md:w-auto gold-btn" 
                             size="lg"
                           >
-                            {user ? "INITIALIZE PROTOCOL" : "LOGIN TO PLAY"}
+                            {creatingGame === TierLevel.TIER_3 ? (
+                                <><Loader2 className="animate-spin mr-2 h-4 w-4" /> INITIALIZING...</>
+                            ) : (
+                                user ? "INITIALIZE PROTOCOL" : "LOGIN TO PLAY"
+                            )}
                           </Button>
                        </div>
                     </div>
@@ -177,9 +217,15 @@ export const TierSelection: React.FC = () => {
             <div className="lg:col-span-4 lg:row-span-1">
                <Card 
                  enableTilt
-                 className="h-full border-blue-500/20 bg-[#0A0A0E] cursor-pointer hover:border-blue-500/50 group"
-                 onClick={() => handleTierSelect(TierLevel.TIER_2)}
+                 className={`h-full border-blue-500/20 bg-[#0A0A0E] group relative ${creatingGame ? 'cursor-not-allowed opacity-70' : 'cursor-pointer hover:border-blue-500/50'}`}
+                 onClick={() => !creatingGame && handleTierSelect(TierLevel.TIER_2)}
                >
+                  {creatingGame === TierLevel.TIER_2 && (
+                    <div className="absolute inset-0 bg-black/50 z-50 flex items-center justify-center backdrop-blur-sm rounded-3xl">
+                       <Loader2 className="animate-spin text-blue-400 w-8 h-8" />
+                    </div>
+                  )}
+
                   <div className="p-8 h-full flex flex-col justify-between relative z-10">
                      <div className="flex justify-between items-start">
                         <div className="p-3 rounded-2xl bg-blue-500/10 text-blue-400 shadow-[0_0_20px_rgba(59,130,246,0.2)]">
@@ -219,8 +265,8 @@ export const TierSelection: React.FC = () => {
             <div className="lg:col-span-4 lg:row-span-1">
                <Card 
                  enableTilt
-                 className="h-full border-white/10 bg-[#0A0A0E] cursor-pointer hover:border-white/30 group"
-                 onClick={() => handleTierSelect(TierLevel.TIER_1)}
+                 className={`h-full border-white/10 bg-[#0A0A0E] group relative ${creatingGame ? 'cursor-not-allowed opacity-70' : 'cursor-pointer hover:border-white/30'}`}
+                 onClick={() => !creatingGame && handleTierSelect(TierLevel.TIER_1)}
                >
                   <div className="p-8 h-full flex flex-col justify-between relative z-10">
                      <div className="flex justify-between items-start">

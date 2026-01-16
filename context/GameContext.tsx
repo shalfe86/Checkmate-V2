@@ -11,6 +11,9 @@ type AppView = 'lobby' | 'rules' | 'terms' | 'admin';
 interface GameContextType {
   currentTier: TierConfig | null;
   selectTier: (tier: TierLevel) => void;
+  activeGameId: string | null;
+  enterGame: (gameId: string) => void;
+  exitGame: () => void;
   game: Chess;
   gameState: GameState;
   whiteTime: number;
@@ -36,6 +39,8 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [wallet, setWallet] = useState<Wallet | null>(null);
   
   const [currentTier, setCurrentTier] = useState<TierConfig | null>(null);
+  const [activeGameId, setActiveGameId] = useState<string | null>(null);
+
   const [game, setGame] = useState(new Chess());
   const [whiteTime, setWhiteTime] = useState(0);
   const [blackTime, setBlackTime] = useState(0);
@@ -105,6 +110,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setProfile(null);
     setWallet(null);
     setCurrentTier(null);
+    setActiveGameId(null);
     setCurrentView('lobby');
     
     // 2. Perform server sign out
@@ -161,6 +167,20 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setCurrentTier(config);
     setWhiteTime(config.timeControl.initial);
     setBlackTime(config.timeControl.initial);
+    const newGame = new Chess();
+    setGame(newGame);
+    setActiveGameId(null);
+  };
+
+  const enterGame = (gameId: string) => {
+    setActiveGameId(gameId);
+    setCurrentTier(null);
+  };
+
+  const exitGame = () => {
+    setActiveGameId(null);
+    setCurrentTier(null);
+    refreshWallet();
     const newGame = new Chess();
     setGame(newGame);
   };
@@ -273,6 +293,9 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     <GameContext.Provider value={{
       currentTier,
       selectTier,
+      activeGameId,
+      enterGame,
+      exitGame,
       game,
       gameState,
       whiteTime,
