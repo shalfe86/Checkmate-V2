@@ -49,18 +49,32 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const isAdmin = profile?.role === 'admin';
 
   // Fetch Profile and Wallet (Strict Server)
+  // Added isInitialLoad flag to handle auto-redirection for admins
+// Fetch Profile, Wallet, AND Roles
   const fetchUserData = async (userId: string) => {
     try {
+      // 1. Fetch Profile
       const { data: profileData, error: profileError } = await supabase
         .from('profiles')
         .select('*')
         .eq('id', userId)
         .single();
       
+      // 2. Fetch Role (NEW)
+      const { data: roleData, error: roleError } = await supabase
+        .from('user_roles')
+        .select('role')
+        .eq('user_id', userId)
+        .maybeSingle(); // Use maybeSingle in case the trigger hasn't fired yet
+        
+      const userRole = roleData?.role ?? 'user';
+
       if (!profileError && profileData) {
-        setProfile(profileData);
+        // We artificially attach the role to the profile object for the app to use
+        setProfile({ ...profileData, role: userRole });
       }
       
+      // 3. Fetch Wallet
       const { data: walletData, error: walletError } = await supabase
         .from('wallets')
         .select('*')
@@ -79,7 +93,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const refreshWallet = async () => {
-    if (user) await fetchUserData(user.id);
+    if (user) await fetchUserData(user.id, false);
   };
 
   const logout = async () => {
@@ -104,7 +118,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     supabase.auth.getSession().then(({ data: { session } }) => {
         if (session?.user) {
             setUser(session.user);
-            fetchUserData(session.user.id);
+            fetchUserData(session.user.id, true);
         }
     });
 
@@ -120,7 +134,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } else if (currentUser.id !== user?.id) {
           setUser(currentUser);
           // Small delay to allow database triggers to initialize profile if new user
-          setTimeout(() => fetchUserData(currentUser.id), 500);
+          setTimeout(() => fetchUserData(currentUser.id, true), 500);
       }
     });
 

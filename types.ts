@@ -37,12 +37,15 @@ export interface Move {
   promotion?: string;
 }
 
+// Add this new type
+export type AppRole = 'admin' | 'user';
+
 export interface UserProfile {
   id: string;
   username: string;
   country_code?: string;
   avatar_url?: string;
-  role?: 'user' | 'admin' | 'moderator';
+  role?: AppRole; 
 }
 
 export interface Wallet {
