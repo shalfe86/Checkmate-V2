@@ -13,6 +13,7 @@ function getBestMove(game: Chess): string | null {
   const moves = game.moves();
   if (moves.length === 0) return null;
 
+  // Simple evaluation
   let bestMove = moves[0];
   let bestValue = -Infinity;
 
@@ -40,6 +41,7 @@ function getBestMove(game: Chess): string | null {
 }
 
 serve(async (req) => {
+  // Handle CORS preflight
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
   }
@@ -50,55 +52,95 @@ serve(async (req) => {
       throw new Error('Missing Authorization header');
     }
 
+    // Initialize Supabase Client
     const supabaseClient = createClient(
       (Deno as any).env.get('SUPABASE_URL') ?? '',
       (Deno as any).env.get('SUPABASE_ANON_KEY') ?? '',
       { global: { headers: { Authorization: authHeader } } }
     )
 
+    // Verify User
     const { data: { user }, error: authError } = await supabaseClient.auth.getUser()
-    if (authError || !user) throw new Error('Unauthorized')
+    if (authError || !user) {
+      return new Response(JSON.stringify({ success: false, error: 'Unauthorized: Session invalid' }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
+    }
 
+    // Parse Body
     let body;
     try {
       body = await req.json();
     } catch (e) {
-      throw new Error('Invalid JSON body');
+      return new Response(JSON.stringify({ success: false, error: 'Invalid JSON body' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
     }
 
     const { gameId, moveFrom, moveTo, promotion } = body;
 
+    // Admin Client for DB operations
     const supabaseAdmin = createClient(
       (Deno as any).env.get('SUPABASE_URL') ?? '',
       (Deno as any).env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     )
     
+    // Fetch Game
     const { data: game, error: gameError } = await supabaseAdmin
       .from('games')
       .select('*')
       .eq('id', gameId)
       .single()
 
-    if (gameError || !game) throw new Error('Game not found')
+    if (gameError || !game) {
+      return new Response(JSON.stringify({ success: false, error: 'Game not found' }), {
+        status: 200, // Return 200 so client sees the error message
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
+    }
 
-    if (game.status !== 'active') throw new Error('Game is not active')
+    if (game.status !== 'active') {
+       return new Response(JSON.stringify({ success: false, error: 'Game is not active' }), {
+        status: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
+    }
     
-    // STRICT RULE: You must be the White player to make a move via this API
-    if (game.white_player_id !== user.id) throw new Error('Not your game')
+    // Strict Player Check
+    if (game.white_player_id !== user.id) {
+       return new Response(JSON.stringify({ success: false, error: 'Not your game' }), {
+        status: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
+    }
     
+    // Game Logic
     const chess = new Chess(game.fen)
     
-    // Ensure it's white's turn (User is white)
-    if (chess.turn() !== 'w') throw new Error('Not your turn')
+    // Turn Check
+    if (chess.turn() !== 'w') {
+       return new Response(JSON.stringify({ success: false, error: 'Not your turn' }), {
+        status: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
+    }
 
+    // Move Validation
     try {
       const move = chess.move({ from: moveFrom, to: moveTo, promotion: promotion || 'q' })
       if (!move) throw new Error('Invalid move')
     } catch (e) {
-      throw new Error('Illegal move attempted')
+      return new Response(JSON.stringify({ success: false, error: 'Illegal move detected by referee' }), {
+        status: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
     }
 
-    // Check for Win/Loss after User Move
+    // --- MOVE ACCEPTED ---
+
+    // 1. Check for Player Win
     if (chess.isGameOver()) {
        const isWin = chess.isCheckmate() && chess.turn() === 'b'; // White mated Black
        
@@ -112,29 +154,34 @@ serve(async (req) => {
         })
         .eq('id', gameId)
 
-      return new Response(JSON.stringify({ success: true, gameOver: true, fen: chess.fen() }), {
+      return new Response(JSON.stringify({ success: true, gameOver: true, winner: isWin ? 'user' : 'draw', fen: chess.fen() }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
     }
 
-    // AI Response (Instant)
+    // 2. AI Turn (Instant)
     const aiMove = getBestMove(chess);
     if (aiMove) {
       chess.move(aiMove);
     }
 
-    // Check for Win/Loss after AI Move
+    // 3. Check for AI Win
     const aiWin = chess.isCheckmate() && chess.turn() === 'w'; // Black mated White
+    const isDraw = chess.isDraw() || chess.isStalemate() || chess.isInsufficientMaterial();
 
-    // Update DB
+    const updatePayload: any = {
+        fen: chess.fen(), 
+        pgn: chess.pgn()
+    };
+
+    if (chess.isGameOver()) {
+        updatePayload.status = 'completed';
+        updatePayload.winner_id = aiWin ? 'AI_BOT' : null;
+    }
+
     const { error: updateError } = await supabaseAdmin
       .from('games')
-      .update({ 
-        fen: chess.fen(), 
-        pgn: chess.pgn(),
-        status: chess.isGameOver() ? 'completed' : 'active',
-        winner_id: aiWin ? 'AI_BOT' : null 
-      })
+      .update(updatePayload)
       .eq('id', gameId)
 
     if (updateError) throw updateError
@@ -144,9 +191,9 @@ serve(async (req) => {
     })
 
   } catch (error: any) {
-    console.error("Move Error:", error.message);
-    return new Response(JSON.stringify({ error: error.message }), {
-      status: 400,
+    console.error("System Error:", error.message);
+    return new Response(JSON.stringify({ success: false, error: error.message || 'Internal Server Error' }), {
+      status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     })
   }
