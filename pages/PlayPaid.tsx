@@ -31,10 +31,13 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
   const [countdown, setCountdown] = useState<number | null>(null);
   const [isGameActive, setIsGameActive] = useState(false);
 
-  // End Game State
+  // Exit/End Game Modal States
   const [showGameOverModal, setShowGameOverModal] = useState(false);
   const [gameOverReason, setGameOverReason] = useState<'checkmate' | 'timeout' | 'resign' | 'draw' | null>(null);
   const [winner, setWinner] = useState<'user' | 'ai' | 'draw' | null>(null);
+
+  const [showExitModal, setShowExitModal] = useState(false);
+  const [exitType, setExitType] = useState<'cancel' | 'forfeit'>('cancel');
 
   // Timer State
   const [whiteTime, setWhiteTime] = useState(0);
@@ -54,7 +57,6 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
 
       if (data) {
         try {
-            // Priority: Load PGN if available to preserve history
             const loadedGame = new Chess();
             if (data.pgn) {
                 loadedGame.loadPgn(data.pgn);
@@ -64,18 +66,15 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
 
             setGame(loadedGame);
             
-            // Set Tier Config
             if (data.tier && TIERS[data.tier as TierLevel]) {
                 const config = TIERS[data.tier as TierLevel];
                 setTierConfig(config);
-                // Only set times if new game
                 if (loadedGame.history().length === 0) {
                    setWhiteTime(config.timeControl.initial);
                    setBlackTime(config.timeControl.initial);
                 }
             }
 
-            // Determine Start State
             if (loadedGame.history().length > 0) {
                 setIsGameActive(true);
             } else {
@@ -109,7 +108,7 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
     }
   }, [countdown]);
 
-  // 3. Timer Logic (Client Simulation)
+  // 3. Timer Logic
   useEffect(() => {
     if (loading || !tierConfig || game.isGameOver() || !isGameActive) {
         if (timerInterval.current) clearInterval(timerInterval.current);
@@ -131,7 +130,7 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
     };
   }, [game.turn(), loading, tierConfig, isGameActive]);
 
-  // 4. Timer Expiration Handling
+  // 4. Timer Expiration
   useEffect(() => {
       if (!isGameActive || game.isGameOver()) return;
 
@@ -153,7 +152,6 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
       setShowGameOverModal(true);
 
       if (isUserLoss) {
-          // Send Timeout Action to Server
           try {
               await supabase.functions.invoke('make-move', {
                   body: { gameId, action: 'timeout' }
@@ -198,9 +196,9 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
               if (status === 'completed') {
                   setIsGameActive(false);
                   if (!showGameOverModal) {
-                      setGameOverReason('checkmate'); // Default fallback if not timeout/resign
+                      setGameOverReason('checkmate');
                       setWinner(payload.new.winner_id === 'AI_BOT' ? 'ai' : 'user');
-                      // setShowGameOverModal(true); // Optional: Realtime trigger modal
+                      // setShowGameOverModal(true);
                   }
               }
           } catch(e) {
@@ -213,7 +211,7 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
     return () => { supabase.removeChannel(channel); };
   }, [gameId, game, tierConfig, isGameActive]);
 
-  // Prevent accidental back/close
+  // Prevent back/close
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
       e.preventDefault(); 
@@ -283,35 +281,36 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
     }
   };
 
-  // 7. Handle Forfeit / Cancel
-  const handleExitAction = async () => {
+  // 7. Handle Forfeit / Cancel (Updated)
+  const handleExitAction = () => {
     const isFirstMove = game.history().length === 0;
-    
-    // CASE A: Cancel before start
-    if (isFirstMove) {
-        if (window.confirm("Cancel this match? No wager will be lost.")) {
-            try {
-                await supabase.from('games').update({ status: 'cancelled' }).eq('id', gameId);
-            } catch (e) {
-                console.warn("Cancel update failed");
-            } finally {
-                // FORCE EXIT regardless of DB success
-                onExit();
-            }
-        }
-        return;
-    }
+    setExitType(isFirstMove ? 'cancel' : 'forfeit');
+    setShowExitModal(true);
+  };
 
-    // CASE B: Surrender (Resign)
-    if (window.confirm("WARNING: Forfeiting will result in a LOSS. Are you sure?")) {
+  const confirmExit = async () => {
+    setShowExitModal(false);
+    
+    // Safety Force Exit in case of error
+    const forceExit = () => setTimeout(onExit, 500);
+
+    if (exitType === 'cancel') {
+        try {
+            await supabase.from('games').update({ status: 'cancelled' }).eq('id', gameId);
+        } catch (e) {
+            console.warn("Cancel update failed");
+        } finally {
+            onExit();
+        }
+    } else {
+        // Forfeit
         try {
             await supabase.functions.invoke('make-move', {
                 body: { gameId, action: 'resign' }
             });
-        } catch (e: any) {
+        } catch (e) {
             console.error("Resign Error:", e);
         } finally {
-            // FORCE EXIT immediately for better UX ("letting me leave")
             onExit();
         }
     }
@@ -508,10 +507,55 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
             </div>
         </div>
 
+        {/* Exit Confirmation Modal */}
+        <Modal
+            isOpen={showExitModal}
+            onClose={() => setShowExitModal(false)}
+            title={exitType === 'cancel' ? "CANCEL PROTOCOL" : "SURRENDER CONFIRMATION"}
+            footer={
+                <>
+                    <Button variant="ghost" onClick={() => setShowExitModal(false)}>
+                        ABORT
+                    </Button>
+                    <Button 
+                        onClick={confirmExit} 
+                        className={exitType === 'cancel' ? "bg-slate-200 text-black border-none" : "bg-red-600 text-white hover:bg-red-700 border-none"}
+                    >
+                        {exitType === 'cancel' ? "CONFIRM CANCEL" : "CONFIRM FORFEIT"}
+                    </Button>
+                </>
+            }
+        >
+            <div className="text-center py-4 space-y-4">
+                {exitType === 'cancel' ? (
+                    <>
+                        <div className="bg-slate-800 p-4 rounded-full inline-block">
+                             <ArrowLeft size={32} className="text-slate-400" />
+                        </div>
+                        <p className="text-slate-300">
+                            Are you sure you want to cancel this match? <br/>
+                            <span className="text-green-400 font-bold">No wager will be lost.</span>
+                        </p>
+                    </>
+                ) : (
+                    <>
+                        <div className="bg-red-900/20 p-4 rounded-full inline-block border border-red-500/30">
+                             <Flag size={32} className="text-red-500" />
+                        </div>
+                        <p className="text-slate-300">
+                            WARNING: Surrendering will result in an immediate <span className="text-red-500 font-bold">LOSS</span>.
+                            <br/>
+                            Your wager will be forfeited.
+                        </p>
+                    </>
+                )}
+            </div>
+        </Modal>
+
         {/* Game Over Modal */}
         <Modal
             isOpen={showGameOverModal}
-            onClose={() => {}} // Block closing by clicking background
+            onClose={() => {}} 
             title="MATCH REPORT"
         >
             <div className="text-center space-y-6 py-4">
