@@ -50,6 +50,26 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, defaultMo
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Helper to reset form
+  const resetForm = () => {
+    setEmail('');
+    setUsername('');
+    setPassword('');
+    setConfirmPassword('');
+    setCountry('US');
+    setAgreed18(false);
+    setAgreedTerms(false);
+    setError(null);
+  };
+
+  // Sync state when opening/closing
+  useEffect(() => {
+    if (isOpen) {
+      setMode(defaultMode);
+      resetForm();
+    }
+  }, [isOpen, defaultMode]);
+
   useEffect(() => {
     if (showTermsModal) {
       setCanAcceptTerms(false);
@@ -112,7 +132,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, defaultMo
 
   const handleModeSwitch = () => {
     setMode(mode === 'login' ? 'signup' : 'login');
-    setError(null);
+    resetForm();
+  };
+
+  const handleClose = () => {
+    onClose();
   };
 
   return (
@@ -125,7 +149,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, defaultMo
             <h2 className="text-xl font-orbitron text-white">
               {mode === 'login' ? 'ACCESS TERMINAL' : 'NEW OPERATOR'}
             </h2>
-            <button onClick={onClose} className="text-slate-400 hover:text-white transition-colors">
+            <button onClick={handleClose} className="text-slate-400 hover:text-white transition-colors">
               <X size={20} />
             </button>
           </div>

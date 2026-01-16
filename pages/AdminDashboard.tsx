@@ -23,13 +23,31 @@ export const AdminDashboard: React.FC = () => {
   // AI Lab State
   const [aiLabTier, setAiLabTier] = useState<TierLevel>(TierLevel.TIER_3);
 
-  // Fetch real users from profiles (Supabase)
+// Fetch real users from profiles + roles
   useEffect(() => {
     if (activeTab === 'users' && isAdmin) {
       const fetchUsers = async () => {
-         const { data, error } = await supabase.from('profiles').select('*');
-         if (!error && data) {
-            setUserList(data);
+         // 1. Fetch Profiles
+         const { data: profiles, error: profileError } = await supabase
+            .from('profiles')
+            .select('*');
+            
+         // 2. Fetch Roles
+         const { data: roles, error: roleError } = await supabase
+            .from('user_roles')
+            .select('user_id, role');
+
+         if (!profileError && profiles) {
+            // 3. Merge them manually
+            const mergedUsers = profiles.map(profile => {
+               const userRoleEntry = roles?.find(r => r.user_id === profile.id);
+               return {
+                  ...profile,
+                  role: userRoleEntry ? userRoleEntry.role : 'user'
+               };
+            });
+            
+            setUserList(mergedUsers);
          }
       };
       fetchUsers();
