@@ -5,7 +5,8 @@ import { Board } from '../components/game/Board';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Timer } from '../components/game/Timer';
-import { Loader2, ShieldCheck, AlertTriangle, ArrowLeft, Activity, Flag } from 'lucide-react';
+import { Modal } from '../components/ui/Modal';
+import { Loader2, ShieldCheck, AlertTriangle, ArrowLeft, Activity, Flag, Skull } from 'lucide-react';
 import { TIERS } from '../constants';
 import { TierConfig, TierLevel } from '../types';
 
@@ -29,6 +30,11 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
   // Start Sequence State
   const [countdown, setCountdown] = useState<number | null>(null);
   const [isGameActive, setIsGameActive] = useState(false);
+
+  // End Game State
+  const [showGameOverModal, setShowGameOverModal] = useState(false);
+  const [gameOverReason, setGameOverReason] = useState<'checkmate' | 'timeout' | 'resign' | 'draw' | null>(null);
+  const [winner, setWinner] = useState<'user' | 'ai' | 'draw' | null>(null);
 
   // Timer State
   const [whiteTime, setWhiteTime] = useState(0);
@@ -62,8 +68,7 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
             if (data.tier && TIERS[data.tier as TierLevel]) {
                 const config = TIERS[data.tier as TierLevel];
                 setTierConfig(config);
-                // Only set times if new game, otherwise should sync time from DB if supported (not in schema yet)
-                // For now, reset to initial if brand new
+                // Only set times if new game
                 if (loadedGame.history().length === 0) {
                    setWhiteTime(config.timeControl.initial);
                    setBlackTime(config.timeControl.initial);
@@ -71,7 +76,6 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
             }
 
             // Determine Start State
-            // If moves have been made, resume immediately. If not, start countdown.
             if (loadedGame.history().length > 0) {
                 setIsGameActive(true);
             } else {
@@ -105,9 +109,8 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
     }
   }, [countdown]);
 
-  // 3. Timer Logic (Client Simulation of Server Time)
+  // 3. Timer Logic (Client Simulation)
   useEffect(() => {
-    // Only run timer if game is fully active, not loading, and not over
     if (loading || !tierConfig || game.isGameOver() || !isGameActive) {
         if (timerInterval.current) clearInterval(timerInterval.current);
         return;
@@ -143,27 +146,21 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
       setIsGameActive(false);
       if (timerInterval.current) clearInterval(timerInterval.current);
       
-      const winner = loser === 'white' ? 'AI_BOT' : 'USER';
-      toast({ 
-          title: "TIME EXPIRED", 
-          description: loser === 'white' ? "You ran out of time." : "Opponent timed out.", 
-          variant: "destructive" 
-      });
+      const isUserLoss = loser === 'white';
+      
+      setGameOverReason('timeout');
+      setWinner(isUserLoss ? 'ai' : 'user');
+      setShowGameOverModal(true);
 
-      // Update DB
-      try {
-          // If User lost (White), mark as completed with AI winner
-          if (loser === 'white') {
-             await supabase.from('games').update({ status: 'completed', winner_id: 'AI_BOT' }).eq('id', gameId);
-          } else {
-             // If AI lost (Black), User wins
-             const { data: { user } } = await supabase.auth.getUser();
-             if (user) {
-                 await supabase.from('games').update({ status: 'completed', winner_id: user.id }).eq('id', gameId);
-             }
+      if (isUserLoss) {
+          // Send Timeout Action to Server
+          try {
+              await supabase.functions.invoke('make-move', {
+                  body: { gameId, action: 'timeout' }
+              });
+          } catch (e) {
+              console.error("Failed to sync timeout", e);
           }
-      } catch (e) {
-          console.error("Failed to sync timeout", e);
       }
   };
 
@@ -177,9 +174,9 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
         (payload) => {
           const newFen = payload.new.fen;
           const newPgn = payload.new.pgn;
+          const status = payload.new.status;
 
           try {
-              // Priority: Use PGN to update state to preserve history
               if (newPgn && newPgn !== game.pgn()) {
                   const newGame = new Chess();
                   newGame.loadPgn(newPgn);
@@ -190,20 +187,21 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
                       setCountdown(null);
                   }
 
-                  // Increment Logic
                   if (tierConfig && newGame.turn() === 'w') {
                       setBlackTime(t => Math.min(t + tierConfig.timeControl.increment, tierConfig.timeControl.maxCap));
                   }
-              } 
-              // Fallback to FEN if PGN missing (shouldn't happen with new Edge Function)
-              else if (newFen && newFen !== game.fen()) {
+              } else if (newFen && newFen !== game.fen()) {
                   const newGame = new Chess(newFen);
                   setGame(newGame);
               }
 
-              if (payload.new.status === 'completed') {
+              if (status === 'completed') {
                   setIsGameActive(false);
-                  toast({ title: "Game Over", description: "Match concluded." });
+                  if (!showGameOverModal) {
+                      setGameOverReason('checkmate'); // Default fallback if not timeout/resign
+                      setWinner(payload.new.winner_id === 'AI_BOT' ? 'ai' : 'user');
+                      // setShowGameOverModal(true); // Optional: Realtime trigger modal
+                  }
               }
           } catch(e) {
               console.error("Realtime update error", e);
@@ -229,18 +227,15 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
   const onDrop = async (sourceSquare: string, targetSquare: string) => {
     if (!isGameActive) return;
 
-    // A. Optimistic Local Validation & Update
     const prevPgn = game.pgn();
     const prevFen = game.fen();
 
     try {
-      // Use a clone to validate move locally
       const tempGame = new Chess();
       if (prevPgn) tempGame.loadPgn(prevPgn);
       else tempGame.load(prevFen);
 
       const move = tempGame.move({ from: sourceSquare, to: targetSquare, promotion: 'q' });
-      
       if (!move) return; 
       
       setGame(tempGame);
@@ -251,7 +246,6 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
 
     } catch { return; }
 
-    // B. Send to Server (Background)
     try {
       const { data, error } = await supabase.functions.invoke('make-move', {
         body: {
@@ -265,16 +259,21 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
       if (error) throw new Error(error.message || "Connection failed");
       if (data && !data.success) throw new Error(data.error || "Move rejected by referee");
       
-      // Update with server PGN to ensure full sync
       if (data.pgn) {
           const syncedGame = new Chess();
           syncedGame.loadPgn(data.pgn);
           setGame(syncedGame);
+          
+          if (data.gameOver) {
+              setIsGameActive(false);
+              setWinner(data.winner === 'user' ? 'user' : 'ai');
+              setGameOverReason('checkmate');
+              setShowGameOverModal(true);
+          }
       }
 
     } catch (e: any) {
       console.error("Move Execution Error:", e);
-      // Revert on Error
       const revertGame = new Chess();
       if (prevPgn) revertGame.loadPgn(prevPgn);
       else revertGame.load(prevFen);
@@ -288,42 +287,32 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
   const handleExitAction = async () => {
     const isFirstMove = game.history().length === 0;
     
+    // CASE A: Cancel before start
     if (isFirstMove) {
         if (window.confirm("Cancel this match? No wager will be lost.")) {
-            // Using finally to ensure we exit even if the network call fails (e.g. duplicate request)
             try {
-                // Update DB to cancelled. 
-                const { error } = await supabase
-                    .from('games')
-                    .update({ status: 'cancelled' })
-                    .eq('id', gameId);
-                
-                if (error) {
-                    console.warn("DB Cancel Error:", error);
-                    // If update fails, we might still want to exit, but let's log it.
-                }
+                await supabase.from('games').update({ status: 'cancelled' }).eq('id', gameId);
             } catch (e) {
-                console.error("Cancel Exception:", e);
+                console.warn("Cancel update failed");
             } finally {
+                // FORCE EXIT regardless of DB success
                 onExit();
             }
         }
-    } else {
-        if (window.confirm("WARNING: Forfeiting will result in a LOSS and loss of wager. Are you sure?")) {
-            try {
-                const { error } = await supabase
-                    .from('games')
-                    .update({
-                        status: 'completed',
-                        winner_id: 'AI_BOT' 
-                    })
-                    .eq('id', gameId);
+        return;
+    }
 
-                if (error) throw error;
-                onExit();
-            } catch (e: any) {
-                toast({ variant: "destructive", title: "Error", description: e.message });
-            }
+    // CASE B: Surrender (Resign)
+    if (window.confirm("WARNING: Forfeiting will result in a LOSS. Are you sure?")) {
+        try {
+            await supabase.functions.invoke('make-move', {
+                body: { gameId, action: 'resign' }
+            });
+        } catch (e: any) {
+            console.error("Resign Error:", e);
+        } finally {
+            // FORCE EXIT immediately for better UX ("letting me leave")
+            onExit();
         }
     }
   };
@@ -337,10 +326,8 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
   return (
     <div className="min-h-screen bg-slate-950 text-white pt-20 pb-8 flex flex-col items-center relative overflow-hidden">
         
-        {/* Background Grid */}
         <div className="absolute inset-0 pointer-events-none opacity-10 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')]"></div>
 
-        {/* Countdown Overlay */}
         {countdown !== null && (
             <div className="absolute inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center animate-in fade-in duration-300">
                 <div className="text-center">
@@ -352,7 +339,6 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
             </div>
         )}
 
-        {/* Notification Toast */}
         {notification && (
           <div className={`absolute top-24 right-4 z-[60] px-6 py-4 rounded-lg shadow-2xl border flex items-center gap-3 animate-in slide-in-from-right-4 duration-300 ${
              notification.type === 'error' ? 'bg-red-900/90 border-red-500 text-white' : 'bg-slate-800 border-yellow-500/50 text-white'
@@ -365,7 +351,6 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
           </div>
         )}
 
-        {/* Header */}
         <div className="w-full max-w-6xl px-4 mb-6 flex justify-between items-center relative z-10">
             <div className="flex items-center gap-4">
                 <Button variant="ghost" size="sm" onClick={handleExitAction} className="text-slate-400 hover:text-white">
@@ -394,7 +379,6 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
         
         <div className="flex flex-col lg:flex-row gap-8 items-start w-full max-w-6xl px-4 relative z-10">
             
-            {/* Left Panel: History */}
             <div className="hidden lg:flex flex-col w-64 h-[600px]">
                 <Card className="h-full bg-slate-900/80 border-white/10 backdrop-blur-sm flex flex-col">
                     <div className="p-4 border-b border-white/5 bg-slate-950/50">
@@ -422,10 +406,8 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
                 </Card>
             </div>
 
-            {/* Center: Board & Timers */}
             <div className="flex-1 flex flex-col items-center">
                 
-                {/* Opponent Timer (AI) */}
                 <div className="w-full max-w-[600px] flex justify-between items-end mb-4 px-2">
                     <div className="flex items-center gap-3 opacity-60">
                         <div className="h-10 w-10 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center">
@@ -444,9 +426,7 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
                     />
                 </div>
 
-                {/* The Board */}
                 <Card className="p-2 border-yellow-500/10 bg-slate-900 shadow-[0_0_100px_-20px_rgba(0,0,0,0.7)] relative group">
-                    {/* Glow effect on turn */}
                     <div className={`absolute -inset-1 bg-gradient-to-r from-yellow-500/20 to-transparent blur-xl transition-opacity duration-500 ${isPlayerTurn && isGameActive ? 'opacity-100' : 'opacity-0'}`}></div>
                     
                     <div className="relative z-10">
@@ -458,7 +438,6 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
                     </div>
                 </Card>
 
-                {/* Player Timer (User) */}
                 <div className="w-full max-w-[600px] flex justify-between items-start mt-4 px-2">
                     <div className="flex items-center gap-3">
                         <div className="h-10 w-10 rounded-lg bg-yellow-900/20 border border-yellow-500/50 flex items-center justify-center">
@@ -478,7 +457,6 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
                 </div>
             </div>
 
-            {/* Right Panel: (Mobile Hidden) Status/Chat Placeholder */}
             <div className="hidden xl:flex flex-col w-64 h-[600px] space-y-4">
                  <Card className="p-4 bg-slate-900/80 border-white/10">
                     <h3 className="text-xs font-bold text-slate-500 uppercase mb-2">Match Status</h3>
@@ -498,7 +476,6 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
                     </div>
                  </Card>
 
-                 {/* Cancel/Forfeit Button Area */}
                  <div className="mt-auto pt-4">
                      <Button 
                         onClick={handleExitAction} 
@@ -521,7 +498,6 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
 
         </div>
 
-        {/* Mobile History (Bottom) */}
         <div className="lg:hidden w-full max-w-xl px-4 mt-8">
             <div className="h-32 bg-slate-900/50 border border-white/10 rounded-lg overflow-y-auto p-2 text-xs font-mono text-slate-400">
                 {history.map((m, i) => (
@@ -531,6 +507,41 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
                 ))}
             </div>
         </div>
+
+        {/* Game Over Modal */}
+        <Modal
+            isOpen={showGameOverModal}
+            onClose={() => {}} // Block closing by clicking background
+            title="MATCH REPORT"
+        >
+            <div className="text-center space-y-6 py-4">
+                {winner === 'user' ? (
+                    <div className="space-y-4">
+                        <div className="text-4xl animate-bounce text-yellow-500">
+                            <ShieldCheck size={64} className="mx-auto" />
+                        </div>
+                        <h2 className="text-3xl font-orbitron font-bold text-white">VICTORY</h2>
+                        <p className="text-slate-400">Target Neutralized. Funds Secured.</p>
+                    </div>
+                ) : (
+                    <div className="space-y-4">
+                        <div className="text-4xl animate-pulse text-red-500">
+                            <Skull size={64} className="mx-auto" />
+                        </div>
+                        <h2 className="text-3xl font-orbitron font-bold text-red-500">DEFEAT</h2>
+                        <p className="text-slate-400">
+                            {gameOverReason === 'timeout' ? "Time Expired." : "Checkmate Executed."}
+                        </p>
+                    </div>
+                )}
+                
+                <div className="pt-4 border-t border-white/10">
+                    <Button onClick={() => onExit()} className="w-full">
+                        RETURN TO BASE
+                    </Button>
+                </div>
+            </div>
+        </Modal>
 
     </div>
   );
