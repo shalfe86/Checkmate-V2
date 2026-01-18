@@ -10,7 +10,7 @@ import { supabase } from '../lib/supabase';
 import { 
   ShieldAlert, Users, DollarSign, Activity, Terminal, 
   Search, Ban, AlertTriangle, Eye, Server, Cpu, Database,
-  LayoutDashboard, PlusCircle, CheckCircle, Wallet, Brain, Zap, Save
+  LayoutDashboard, PlusCircle, CheckCircle, Wallet, Brain, Zap, Save, Layers
 } from 'lucide-react';
 import { Chess } from 'chess.js';
 
@@ -91,6 +91,7 @@ export const AdminDashboard: React.FC = () => {
   const [gamesPlayed, setGamesPlayed] = useState(0);
   const [lessonsLearned, setLessonsLearned] = useState(0);
   const [dojoLogs, setDojoLogs] = useState<string[]>([]);
+  const [trainingDepth, setTrainingDepth] = useState(2);
   const memoryBuffer = useRef<Map<string, string>>(new Map());
 
   // Fetch real users
@@ -184,7 +185,7 @@ export const AdminDashboard: React.FC = () => {
     setGamesPlayed(0);
     setLessonsLearned(0);
     setDojoLogs([]);
-    addDojoLog("🚀 DOJO INITIALIZED");
+    addDojoLog(`🚀 DOJO INITIALIZED (Depth: ${trainingDepth})`);
 
     let count = 0;
     const TARGET = 1000; 
@@ -200,7 +201,7 @@ export const AdminDashboard: React.FC = () => {
             
             const game = new Chess();
             let moves = 0;
-            const DEPTH = 3; 
+            const DEPTH = trainingDepth; 
 
             while (!game.isGameOver() && moves < 100) {
                 moves++;
@@ -440,6 +441,29 @@ export const AdminDashboard: React.FC = () => {
                 <div className="bg-black/50 p-2 rounded border border-white/10">
                     <div className="text-[10px] text-slate-500 uppercase">Learned</div>
                     <div className="text-xl font-mono text-purple-400">{lessonsLearned}</div>
+                </div>
+             </div>
+
+             {/* DEPTH SELECTOR */}
+             <div className="flex items-center justify-between mb-4 bg-black/40 p-2 rounded border border-white/5">
+                <div className="text-[10px] font-bold text-slate-500 uppercase flex items-center gap-2">
+                   <Layers size={14} className="text-slate-400" /> Search Depth
+                </div>
+                <div className="flex gap-1">
+                   {[1, 2, 3, 4, 5].map(d => (
+                      <button
+                         key={d}
+                         onClick={() => setTrainingDepth(d)}
+                         disabled={training}
+                         className={`w-7 h-7 flex items-center justify-center text-xs font-bold rounded transition-all ${
+                            trainingDepth === d 
+                            ? 'bg-purple-600 text-white shadow-[0_0_10px_rgba(147,51,234,0.3)]' 
+                            : 'bg-slate-800 text-slate-500 hover:bg-slate-700 hover:text-white'
+                         } ${training ? 'opacity-50 cursor-not-allowed' : ''}`}
+                      >
+                         {d}
+                      </button>
+                   ))}
                 </div>
              </div>
              
