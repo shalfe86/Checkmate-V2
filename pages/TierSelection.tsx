@@ -165,11 +165,11 @@ export const TierSelection: React.FC = () => {
           ></div>
         </div>
 
-        <div className="flex-1 container mx-auto px-4 z-10 pt-32 pb-24">
+        <div className="flex-1 container mx-auto px-4 z-10 pt-28 md:pt-32 pb-12 md:pb-24">
           
           {/* 2. Hero Section Typography */}
-          <div className="text-center mb-20 space-y-6 relative">
-             <h1 className="text-6xl md:text-8xl lg:text-9xl font-black font-orbitron leading-[0.9] tracking-tighter">
+          <div className="text-center mb-10 md:mb-20 space-y-4 md:space-y-6 relative">
+             <h1 className="text-5xl md:text-8xl lg:text-9xl font-black font-orbitron leading-[0.9] tracking-tighter">
                PLAY CHESS <br className="hidden md:block"/>
                <span className="text-gold-gradient relative inline-block">
                  WIN BIG
@@ -177,14 +177,14 @@ export const TierSelection: React.FC = () => {
                </span>
              </h1>
              
-             <p className="text-slate-400 max-w-xl mx-auto text-lg font-tech font-light tracking-wide leading-relaxed">
+             <p className="text-slate-400 max-w-xl mx-auto text-sm md:text-lg font-tech font-light tracking-wide leading-relaxed px-4">
                Do you have what it takes to outsmart the AI?
-               <span className="text-white font-medium block mt-2"> Real money is on the line.</span>
+               <span className="text-white font-medium block mt-1 md:mt-2"> Real money is on the line.</span>
              </p>
           </div>
 
           {/* 3. Advanced Bento Grid */}
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 max-w-7xl mx-auto">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 md:gap-6 max-w-7xl mx-auto">
             
             {/* TIER 3 - THE MONOLITH (Spans 8 cols) */}
             <div className="lg:col-span-8 lg:row-span-2 group perspective-1000">
@@ -195,12 +195,12 @@ export const TierSelection: React.FC = () => {
                   <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-10 mix-blend-overlay"></div>
                   
                   <div className="flex flex-col md:flex-row h-full relative z-20">
-                    <div className="p-8 md:p-12 flex-1 flex flex-col justify-between">
+                    <div className="p-6 md:p-12 flex-1 flex flex-col justify-between">
                        <div className="space-y-4">
                           <div className="inline-flex items-center gap-2 text-yellow-500 font-bold tracking-[0.2em] text-[10px] uppercase border border-yellow-500/30 px-3 py-1 rounded-full bg-yellow-500/5">
                             <Crown size={12} /> Championship Series
                           </div>
-                          <h2 className="text-4xl md:text-5xl font-orbitron font-black text-white leading-[0.9]">
+                          <h2 className="text-3xl md:text-5xl font-orbitron font-black text-white leading-[0.9]">
                             GRAND<br/>
                             <span className="text-transparent bg-clip-text bg-gradient-to-r from-white to-slate-500">MASTER</span>
                           </h2>
@@ -225,10 +225,10 @@ export const TierSelection: React.FC = () => {
                           </ul>
                        </div>
 
-                       <div className="pt-8 space-y-8">
+                       <div className="pt-6 md:pt-8 space-y-6 md:space-y-8">
                           <div>
                              <div className="flex items-baseline gap-2">
-                               <span className="text-6xl font-orbitron font-bold text-white tracking-tighter drop-shadow-[0_0_15px_rgba(255,255,255,0.3)]">
+                               <span className="text-5xl md:text-6xl font-orbitron font-bold text-white tracking-tighter drop-shadow-[0_0_15px_rgba(255,255,255,0.3)]">
                                  ${tier3.jackpotSplit}
                                </span>
                                <span className="text-sm font-tech text-yellow-500/80 font-bold uppercase tracking-widest">USD Win</span>
@@ -252,11 +252,11 @@ export const TierSelection: React.FC = () => {
                     </div>
 
                     {/* Hologram Container */}
-                    <div className="relative w-full md:w-1/2 min-h-[300px] md:min-h-auto overflow-hidden flex items-center justify-center">
+                    <div className="relative w-full md:w-1/2 h-[200px] md:h-auto md:min-h-auto overflow-hidden flex items-center justify-center">
                        <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-transparent z-10 md:hidden"></div>
                        <div className="absolute inset-0 bg-gradient-to-l from-black via-transparent to-transparent z-10 hidden md:block"></div>
                        
-                       <div className="scale-75 md:scale-100 md:translate-x-10">
+                       <div className="scale-50 md:scale-100 md:translate-x-10 origin-center translate-y-4 md:translate-y-0">
                          <HoloPiece />
                        </div>
                     </div>
@@ -277,7 +277,7 @@ export const TierSelection: React.FC = () => {
                     </div>
                   )}
 
-                  <div className="p-8 h-full flex flex-col justify-between relative z-10">
+                  <div className="p-6 md:p-8 h-full flex flex-col justify-between relative z-10">
                      <div className="flex justify-between items-start">
                         <div className="p-3 rounded-2xl bg-blue-500/10 text-blue-400 shadow-[0_0_20px_rgba(59,130,246,0.2)]">
                            <Target size={24} />
@@ -319,7 +319,7 @@ export const TierSelection: React.FC = () => {
                  className={`h-full border-white/10 bg-[#0A0A0E] group relative ${creatingGame ? 'cursor-not-allowed opacity-70' : 'cursor-pointer hover:border-white/30'}`}
                  onClick={() => !creatingGame && handleTierSelect(TierLevel.TIER_1)}
                >
-                  <div className="p-8 h-full flex flex-col justify-between relative z-10">
+                  <div className="p-6 md:p-8 h-full flex flex-col justify-between relative z-10">
                      <div className="flex justify-between items-start">
                         <div className="p-3 rounded-2xl bg-slate-800 text-slate-400">
                            <Hexagon size={24} />
@@ -354,7 +354,7 @@ export const TierSelection: React.FC = () => {
           </div>
 
           {/* 4. Stats Ribbon (Updated with real platform data) */}
-          <div className="mt-32 border-y border-white/5 bg-white/[0.02] backdrop-blur-sm">
+          <div className="mt-12 md:mt-32 border-y border-white/5 bg-white/[0.02] backdrop-blur-sm">
               <div className="container mx-auto max-w-7xl">
                 <div className="grid grid-cols-2 md:grid-cols-4 divide-x divide-white/5">
                   {[
@@ -363,9 +363,9 @@ export const TierSelection: React.FC = () => {
                     { label: 'Active Games', value: stats.activeGames.toLocaleString() },
                     { label: 'Total Users', value: stats.totalAccounts.toLocaleString() },
                   ].map((stat, i) => (
-                    <div key={i} className="py-8 text-center group cursor-default">
-                       <div className="text-3xl font-bold font-orbitron text-white group-hover:text-gold-gradient transition-colors duration-300">{stat.value}</div>
-                       <div className="text-[10px] text-slate-500 uppercase tracking-[0.2em] mt-2 font-tech">{stat.label}</div>
+                    <div key={i} className="py-6 md:py-8 text-center group cursor-default">
+                       <div className="text-2xl md:text-3xl font-bold font-orbitron text-white group-hover:text-gold-gradient transition-colors duration-300">{stat.value}</div>
+                       <div className="text-[9px] md:text-[10px] text-slate-500 uppercase tracking-[0.2em] mt-2 font-tech">{stat.label}</div>
                     </div>
                   ))}
                 </div>
@@ -382,7 +382,7 @@ export const TierSelection: React.FC = () => {
                  <Crown className="h-4 w-4 text-slate-400" />
                  <span className="text-xs text-slate-500 font-orbitron tracking-widest">CHECKMATE JACKPOT</span>
                </div>
-               <p className="text-[10px] text-slate-600 max-w-xs">
+               <p className="text-[10px] text-slate-600 max-w-xs text-center md:text-left">
                  Decentralized skill-gaming protocol. All rights reserved {new Date().getFullYear()}.
                </p>
             </div>
