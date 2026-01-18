@@ -206,12 +206,16 @@ export const AdminDashboard: React.FC = () => {
             while (!game.isGameOver() && moves < 100) {
                 moves++;
                 const isStudent = game.turn() === 'b';
+                
+                // Student learns from the buffer + local logic
                 const [_, move] = minimax(game, DEPTH, -Infinity, Infinity, isStudent, []);
+                
                 if (move) game.move(move);
                 else break;
                 
-                // Yield every few moves to keep UI responsive
-                if (moves % 20 === 0) await new Promise(r => setTimeout(r, 0));
+                // CRITICAL: Yield AFTER EVERY MOVE. 
+                // This prevents the browser from freezing during deep calculations.
+                await new Promise(r => setTimeout(r, 0));
             }
 
             if (game.isCheckmate()) {

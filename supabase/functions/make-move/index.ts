@@ -12,6 +12,7 @@ const PIECE_VALUES: any = { p: 100, n: 320, b: 330, r: 500, q: 900, k: 20000 };
 // --- MEMORY SYSTEM ---
 
 // 1. Fetch Bad Moves (READ)
+// Checks if the current board position has a known "losing move" in the DB
 async function getBadMoves(fen: string, supabase: any): Promise<string[]> {
   // We use the first 4 parts of FEN (Board, Turn, Castling, En Passant)
   const fenBase = fen.split(' ').slice(0, 4).join(' '); 
@@ -25,10 +26,11 @@ async function getBadMoves(fen: string, supabase: any): Promise<string[]> {
 }
 
 // 2. Record a Loss (WRITE)
+// If the AI loses, we save the position + the bad move to the DB
 async function recordLoss(fen: string, move: string, supabase: any) {
   const fenBase = fen.split(' ').slice(0, 4).join(' ');
   
-  // Try to insert. If it exists, we just ignore it (or could increment a counter)
+  // Upsert: If we already know this mistake, ignore it. If new, save it.
   const { error } = await supabase.from('ai_memory').upsert(
     { fen: fenBase, move_played: move, loss_count: 1 },
     { onConflict: 'fen, move_played' }
@@ -54,6 +56,7 @@ function evaluateBoard(game: Chess): number {
   return score;
 }
 
+// --- MINIMAX BRAIN (DEPTH 3) ---
 function minimax(
   game: Chess, 
   depth: number, 
@@ -68,7 +71,7 @@ function minimax(
   }
 
   const moves = game.moves();
-  // Shuffle moves for variety
+  // Random shuffle for variety so it doesn't play robotically identical games
   moves.sort(() => Math.random() - 0.5); 
 
   let bestMove = moves[0];
@@ -78,10 +81,11 @@ function minimax(
     for (const move of moves) {
       
       // *** MEMORY FILTER ***
-      // If this move is in our "Bad List", we give it a massive penalty.
+      // If this move is in our "Bad List", we give it a massive penalty (-5000).
+      // This forces the AI to pick literally anything else.
       let penalty = 0;
       if (badMoves.includes(move)) {
-          penalty = -5000; // Effectively BANNED
+          penalty = -5000; 
       }
 
       game.move(move);
@@ -113,6 +117,7 @@ function minimax(
   }
 }
 
+// --- MAIN HANDLER ---
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
@@ -120,6 +125,7 @@ serve(async (req) => {
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) throw new Error('Missing Authorization header');
 
+    // 1. Setup Clients
     const supabaseClient = createClient(
       (Deno as any).env.get('SUPABASE_URL') ?? '',
       (Deno as any).env.get('SUPABASE_ANON_KEY') ?? '',
@@ -136,7 +142,7 @@ serve(async (req) => {
       (Deno as any).env.get('SERVICE_ROLE_KEY') ?? (Deno as any).env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
     
-    // Fetch Game
+    // 2. Fetch Game
     const { data: game, error: gameError } = await supabaseAdmin
       .from('games')
       .select('*')
@@ -157,7 +163,7 @@ serve(async (req) => {
     if (game.pgn) chess.loadPgn(game.pgn);
     else chess.load(game.fen);
     
-    // 1. Player Move
+    // 3. Process Player Move
     try {
       const move = chess.move({ from: moveFrom, to: moveTo, promotion: promotion || 'q' });
       if (!move) throw new Error('Invalid move');
@@ -165,17 +171,21 @@ serve(async (req) => {
       throw new Error('Illegal move');
     }
 
-    // 2. CHECK IF AI LOST (User Checkmated AI)
+    // 4. CHECK IF AI LOST (Did user Checkmate AI?)
     if (chess.isGameOver()) {
        const isUserWin = chess.isCheckmate() && chess.turn() === 'b'; 
        
        if (isUserWin) {
            // *** LEARNING TRIGGER ***
+           // The AI just lost. We need to blame the LAST move it made.
            chess.undo(); // Undo the checkmate move
            const badMove = chess.undo(); // Undo the move that caused it
+           
            if (badMove) {
+               // Fire and forget - Save to Memory
                recordLoss(chess.fen(), badMove.san, supabaseAdmin);
            }
+           // Re-apply moves to save state correctly
            if (badMove) chess.move(badMove); 
            chess.move({ from: moveFrom, to: moveTo, promotion: promotion || 'q' });
        }
@@ -187,23 +197,28 @@ serve(async (req) => {
        return new Response(JSON.stringify({ success: true, gameOver: true }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }});
     }
 
-    // 3. AI TURN
+    // 5. AI TURN (THE BRAIN)
     const currentFen = chess.fen();
     
     // A. Consult Memory
     const badMoves = await getBadMoves(currentFen, supabaseAdmin);
     
-    // B. Calculate Move (Depth 2 + Memory)
-    const [score, bestMove] = minimax(chess, 2, -Infinity, Infinity, true, badMoves);
+    // B. Calculate Move
+    // TIER 3 LOGIC: We use Depth 3 (Master) + Memory
+    // This makes it tactical (sees 3 moves ahead) and wise (avoids past losses)
+    const aiDepth = 3; 
+    
+    const [score, bestMove] = minimax(chess, aiDepth, -Infinity, Infinity, true, badMoves);
     
     if (bestMove) {
         chess.move(bestMove);
     } else {
+        // Fallback (only happens if checkmated or stalemate, which isGameOver catches, but just in case)
         const moves = chess.moves();
         if (moves.length > 0) chess.move(moves[0]);
     }
 
-    // 4. Update DB
+    // 6. Update DB
     const aiWin = chess.isCheckmate() && chess.turn() === 'w';
     const updatePayload: any = { fen: chess.fen(), pgn: chess.pgn() };
     if (chess.isGameOver()) {

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useGame } from '../context/GameContext';
 import { Button } from '../components/ui/Button';
 import { ArrowLeft, ScrollText } from 'lucide-react';
@@ -7,6 +7,11 @@ import { TermsBody } from '../components/legal/TermsBody';
 
 export const Terms: React.FC = () => {
   const { setView } = useGame();
+  
+  // Scroll to top on load
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, []);
   
   return (
     <div className="min-h-screen bg-[#050505] text-white pt-24 pb-12 px-4 font-sans selection:bg-yellow-500/30">

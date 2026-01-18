@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useGame } from '../context/GameContext';
 import { Button } from '../components/ui/Button';
 import { ArrowLeft, ScrollText, Shield, Scale, AlertTriangle, Target, Crown } from 'lucide-react';
@@ -6,6 +6,11 @@ import { Card } from '../components/ui/Card';
 
 export const Rules: React.FC = () => {
   const { setView } = useGame();
+  
+  // Scroll to top on load
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, []);
   
   const sections = [
     {
