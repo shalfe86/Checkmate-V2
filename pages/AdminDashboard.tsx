@@ -200,7 +200,7 @@ export const AdminDashboard: React.FC = () => {
             
             const game = new Chess();
             let moves = 0;
-            const DEPTH = 2; 
+            const DEPTH = 3; 
 
             while (!game.isGameOver() && moves < 100) {
                 moves++;
