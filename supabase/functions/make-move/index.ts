@@ -7,34 +7,110 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
-const PIECE_VALUES: Record<string, number> = { p: 100, n: 320, b: 330, r: 500, q: 900, k: 20000 };
+const PIECE_VALUES: any = { p: 100, n: 320, b: 330, r: 500, q: 900, k: 20000 };
 
-function getBestMove(game: Chess): string | null {
-  const moves = game.moves();
-  if (moves.length === 0) return null;
-  // Simple AI: Capture high value pieces
-  let bestMove = moves[0];
-  let bestValue = -Infinity;
-  for (const move of moves) {
-    game.move(move);
-    let score = 0;
-    const board = game.board();
-    for (let row = 0; row < 8; row++) {
-      for (let col = 0; col < 8; col++) {
-        const piece = board[row][col];
-        if (piece) {
-          const val = PIECE_VALUES[piece.type] || 0;
-          score += piece.color === 'b' ? val : -val; 
-        }
+// --- MEMORY SYSTEM ---
+
+// 1. Fetch Bad Moves (READ)
+async function getBadMoves(fen: string, supabase: any): Promise<string[]> {
+  // We use the first 4 parts of FEN (Board, Turn, Castling, En Passant)
+  const fenBase = fen.split(' ').slice(0, 4).join(' '); 
+  
+  const { data } = await supabase
+    .from('ai_memory')
+    .select('move_played')
+    .eq('fen', fenBase);
+
+  return data ? data.map((r: any) => r.move_played) : [];
+}
+
+// 2. Record a Loss (WRITE)
+async function recordLoss(fen: string, move: string, supabase: any) {
+  const fenBase = fen.split(' ').slice(0, 4).join(' ');
+  
+  // Try to insert. If it exists, we just ignore it (or could increment a counter)
+  const { error } = await supabase.from('ai_memory').upsert(
+    { fen: fenBase, move_played: move, loss_count: 1 },
+    { onConflict: 'fen, move_played' }
+  );
+  
+  if (!error) console.log(`MEMORY: Learned that ${move} is bad for ${fenBase}`);
+}
+
+// --- EVALUATION ENGINE ---
+
+function evaluateBoard(game: Chess): number {
+  let score = 0;
+  const board = game.board();
+  for (let r = 0; r < 8; r++) {
+    for (let c = 0; c < 8; c++) {
+      const piece = board[r][c];
+      if (piece) {
+        let val = PIECE_VALUES[piece.type] || 0;
+        score += piece.color === 'b' ? val : -val; 
       }
     }
-    game.undo();
-    if (score > bestValue) {
-      bestValue = score;
-      bestMove = move;
-    }
   }
-  return bestMove;
+  return score;
+}
+
+function minimax(
+  game: Chess, 
+  depth: number, 
+  alpha: number, 
+  beta: number, 
+  isMaximizing: boolean,
+  badMoves: string[] = [] 
+): [number, string | null] {
+  
+  if (depth === 0 || game.isGameOver()) {
+    return [evaluateBoard(game), null];
+  }
+
+  const moves = game.moves();
+  // Shuffle moves for variety
+  moves.sort(() => Math.random() - 0.5); 
+
+  let bestMove = moves[0];
+
+  if (isMaximizing) { // AI (Black)
+    let maxEval = -Infinity;
+    for (const move of moves) {
+      
+      // *** MEMORY FILTER ***
+      // If this move is in our "Bad List", we give it a massive penalty.
+      let penalty = 0;
+      if (badMoves.includes(move)) {
+          penalty = -5000; // Effectively BANNED
+      }
+
+      game.move(move);
+      const evalNum = minimax(game, depth - 1, alpha, beta, false)[0] + penalty;
+      game.undo();
+      
+      if (evalNum > maxEval) {
+        maxEval = evalNum;
+        bestMove = move;
+      }
+      alpha = Math.max(alpha, evalNum);
+      if (beta <= alpha) break;
+    }
+    return [maxEval, bestMove];
+  } else { // Player (White)
+    let minEval = Infinity;
+    for (const move of moves) {
+      game.move(move);
+      const evalNum = minimax(game, depth - 1, alpha, beta, true)[0];
+      game.undo();
+      if (evalNum < minEval) {
+        minEval = evalNum;
+        bestMove = move;
+      }
+      beta = Math.min(beta, evalNum);
+      if (beta <= alpha) break;
+    }
+    return [minEval, bestMove];
+  }
 }
 
 serve(async (req) => {
@@ -44,7 +120,6 @@ serve(async (req) => {
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) throw new Error('Missing Authorization header');
 
-    // 1. Setup Clients
     const supabaseClient = createClient(
       (Deno as any).env.get('SUPABASE_URL') ?? '',
       (Deno as any).env.get('SUPABASE_ANON_KEY') ?? '',
@@ -54,15 +129,14 @@ serve(async (req) => {
     const { data: { user }, error: authError } = await supabaseClient.auth.getUser();
     if (authError || !user) throw new Error('Unauthorized');
 
-    // 2. Parse Request (Look for 'action')
     const { gameId, action, moveFrom, moveTo, promotion } = await req.json();
 
     const supabaseAdmin = createClient(
       (Deno as any).env.get('SUPABASE_URL') ?? '',
-      (Deno as any).env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+      (Deno as any).env.get('SERVICE_ROLE_KEY') ?? (Deno as any).env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
     
-    // 3. Fetch Game
+    // Fetch Game
     const { data: game, error: gameError } = await supabaseAdmin
       .from('games')
       .select('*')
@@ -70,43 +144,20 @@ serve(async (req) => {
       .single();
 
     if (gameError || !game) throw new Error('Game not found');
-    if (game.status !== 'active') throw new Error('Game is not active');
-    if (game.white_player_id !== user.id) throw new Error('Not your game');
 
-    // --- NEW: HANDLE RESIGN/TIMEOUT ---
-    
-    if (action === 'resign') {
+    // Handle Resign/Timeout
+    if (action === 'resign' || action === 'timeout') {
         await supabaseAdmin.from('games').update({ 
-            status: 'completed', 
-            winner_id: 'AI_BOT', // User resigned, Bot wins
-            end_reason: 'resignation'
+            status: 'completed', winner_id: 'AI_BOT', end_reason: action 
         }).eq('id', gameId);
-        
-        return new Response(JSON.stringify({ success: true, status: 'resigned' }), {
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
+        return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }});
     }
 
-    if (action === 'timeout') {
-        await supabaseAdmin.from('games').update({ 
-            status: 'completed', 
-            winner_id: 'AI_BOT', // User ran out of time
-            end_reason: 'timeout'
-        }).eq('id', gameId);
-        
-        return new Response(JSON.stringify({ success: true, status: 'timeout' }), {
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-    }
-
-    // --- STANDARD MOVE LOGIC ---
-    
     const chess = new Chess();
     if (game.pgn) chess.loadPgn(game.pgn);
     else chess.load(game.fen);
     
-    if (chess.turn() !== 'w') throw new Error('Not your turn');
-
+    // 1. Player Move
     try {
       const move = chess.move({ from: moveFrom, to: moveTo, promotion: promotion || 'q' });
       if (!move) throw new Error('Invalid move');
@@ -114,37 +165,53 @@ serve(async (req) => {
       throw new Error('Illegal move');
     }
 
-    // Check Player Win
+    // 2. CHECK IF AI LOST (User Checkmated AI)
     if (chess.isGameOver()) {
-       const isWin = chess.isCheckmate() && chess.turn() === 'b';
-       await supabaseAdmin.from('games').update({ 
-          fen: chess.fen(), pgn: chess.pgn(), status: 'completed', winner_id: isWin ? user.id : null 
-       }).eq('id', gameId);
+       const isUserWin = chess.isCheckmate() && chess.turn() === 'b'; 
+       
+       if (isUserWin) {
+           // *** LEARNING TRIGGER ***
+           chess.undo(); // Undo the checkmate move
+           const badMove = chess.undo(); // Undo the move that caused it
+           if (badMove) {
+               recordLoss(chess.fen(), badMove.san, supabaseAdmin);
+           }
+           if (badMove) chess.move(badMove); 
+           chess.move({ from: moveFrom, to: moveTo, promotion: promotion || 'q' });
+       }
 
-      return new Response(JSON.stringify({ success: true, gameOver: true, winner: isWin ? 'user' : 'draw', fen: chess.fen() }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+       await supabaseAdmin.from('games').update({ 
+          fen: chess.fen(), pgn: chess.pgn(), status: 'completed', winner_id: isUserWin ? user.id : null 
+       }).eq('id', gameId);
+       
+       return new Response(JSON.stringify({ success: true, gameOver: true }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }});
     }
 
-    // AI Turn
-    const aiMove = getBestMove(chess);
-    if (aiMove) chess.move(aiMove);
-
-    // Check AI Win
-    const aiWin = chess.isCheckmate() && chess.turn() === 'w';
+    // 3. AI TURN
+    const currentFen = chess.fen();
     
+    // A. Consult Memory
+    const badMoves = await getBadMoves(currentFen, supabaseAdmin);
+    
+    // B. Calculate Move (Depth 2 + Memory)
+    const [score, bestMove] = minimax(chess, 2, -Infinity, Infinity, true, badMoves);
+    
+    if (bestMove) {
+        chess.move(bestMove);
+    } else {
+        const moves = chess.moves();
+        if (moves.length > 0) chess.move(moves[0]);
+    }
+
+    // 4. Update DB
+    const aiWin = chess.isCheckmate() && chess.turn() === 'w';
     const updatePayload: any = { fen: chess.fen(), pgn: chess.pgn() };
     if (chess.isGameOver()) {
         updatePayload.status = 'completed';
         updatePayload.winner_id = aiWin ? 'AI_BOT' : null;
     }
 
-    const { error: updateError } = await supabaseAdmin
-      .from('games')
-      .update(updatePayload)
-      .eq('id', gameId);
-
-    if (updateError) throw updateError;
+    await supabaseAdmin.from('games').update(updatePayload).eq('id', gameId);
 
     return new Response(JSON.stringify({ success: true, fen: chess.fen(), pgn: chess.pgn() }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -156,4 +223,4 @@ serve(async (req) => {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
-})
+});

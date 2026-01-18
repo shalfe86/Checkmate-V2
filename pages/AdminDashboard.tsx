@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useGame } from '../context/GameContext';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
@@ -10,10 +10,71 @@ import { supabase } from '../lib/supabase';
 import { 
   ShieldAlert, Users, DollarSign, Activity, Terminal, 
   Search, Ban, AlertTriangle, Eye, Server, Cpu, Database,
-  LayoutDashboard, PlusCircle, CheckCircle, Wallet
+  LayoutDashboard, PlusCircle, CheckCircle, Wallet, Brain, Zap, Save
 } from 'lucide-react';
+import { Chess } from 'chess.js';
 
 type AdminTab = 'overview' | 'users' | 'financials' | 'security' | 'ai-lab';
+
+// --- LOCAL DOJO AI LOGIC ---
+const PIECE_VALUES: any = { p: 100, n: 320, b: 330, r: 500, q: 900, k: 20000 };
+
+function evaluateBoard(game: Chess): number {
+  let score = 0;
+  const board = game.board();
+  for (let r = 0; r < 8; r++) {
+    for (let c = 0; c < 8; c++) {
+      const piece = board[r][c];
+      if (piece) {
+        let val = PIECE_VALUES[piece.type] || 0;
+        score += piece.color === 'b' ? val : -val; 
+      }
+    }
+  }
+  return score;
+}
+
+function minimax(game: Chess, depth: number, alpha: number, beta: number, isMaximizing: boolean, badMoves: string[] = []): [number, string | null] {
+  if (depth === 0 || game.isGameOver()) return [evaluateBoard(game), null];
+
+  const moves = game.moves();
+  moves.sort(() => Math.random() - 0.5); // Randomize
+
+  let bestMove = moves[0];
+
+  if (isMaximizing) { // Black (Student)
+    let maxEval = -Infinity;
+    for (const move of moves) {
+      if (badMoves.includes(move)) continue; 
+
+      game.move(move);
+      const evalNum = minimax(game, depth - 1, alpha, beta, false)[0];
+      game.undo();
+      
+      if (evalNum > maxEval) {
+        maxEval = evalNum;
+        bestMove = move;
+      }
+      alpha = Math.max(alpha, evalNum);
+      if (beta <= alpha) break;
+    }
+    return [maxEval, bestMove];
+  } else { // White (Trainer)
+    let minEval = Infinity;
+    for (const move of moves) {
+      game.move(move);
+      const evalNum = minimax(game, depth - 1, alpha, beta, true)[0];
+      game.undo();
+      if (evalNum < minEval) {
+        minEval = evalNum;
+        bestMove = move;
+      }
+      beta = Math.min(beta, evalNum);
+      if (beta <= alpha) break;
+    }
+    return [minEval, bestMove];
+  }
+}
 
 export const AdminDashboard: React.FC = () => {
   const { user, isAdmin, selectTier, game, gameState, setView } = useGame();
@@ -23,28 +84,24 @@ export const AdminDashboard: React.FC = () => {
 
   // AI Lab State
   const [aiLabTier, setAiLabTier] = useState<TierLevel>(TierLevel.TIER_3);
+  
+  // TRAINING DOJO STATE
+  const [training, setTraining] = useState(false);
+  const trainingRef = useRef(false); // Ref for loop control
+  const [gamesPlayed, setGamesPlayed] = useState(0);
+  const [lessonsLearned, setLessonsLearned] = useState(0);
+  const [dojoLogs, setDojoLogs] = useState<string[]>([]);
+  const memoryBuffer = useRef<Map<string, string>>(new Map());
 
-  // Fetch real users from profiles + roles + wallets
+  // Fetch real users
   useEffect(() => {
     if (activeTab === 'users' && isAdmin) {
       const fetchUsers = async () => {
-         // 1. Fetch Profiles
-         const { data: profiles, error: profileError } = await supabase
-            .from('profiles')
-            .select('*');
-            
-         // 2. Fetch Roles
-         const { data: roles, error: roleError } = await supabase
-            .from('user_roles')
-            .select('user_id, role');
-
-         // 3. Fetch Wallets
-         const { data: wallets, error: walletError } = await supabase
-            .from('wallets')
-            .select('*');
+         const { data: profiles, error: profileError } = await supabase.from('profiles').select('*');
+         const { data: roles, error: roleError } = await supabase.from('user_roles').select('user_id, role');
+         const { data: wallets, error: walletError } = await supabase.from('wallets').select('*');
 
          if (!profileError && profiles) {
-            // 4. Merge them manually
             const mergedUsers = profiles.map(profile => {
                const userRoleEntry = roles?.find(r => r.user_id === profile.id);
                const userWallet = wallets?.find(w => w.user_id === profile.id);
@@ -55,7 +112,6 @@ export const AdminDashboard: React.FC = () => {
                   wallet_id: userWallet ? userWallet.id : null
                };
             });
-            
             setUserList(mergedUsers);
          }
       };
@@ -71,7 +127,6 @@ export const AdminDashboard: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
 
-  // If mock/bypass mode is active, user might be null but isAdmin true in context override
   if (!isAdmin) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-black text-red-500 font-mono p-4 text-center">
@@ -84,10 +139,118 @@ export const AdminDashboard: React.FC = () => {
     );
   }
 
-  // Helper to start AI Lab Game
+  // Helper to start AI Lab Game (Manual Play)
   const startAiLab = (tier: TierLevel) => {
     setAiLabTier(tier);
     selectTier(tier); 
+  };
+
+  // --- TRAINING LOGIC ---
+  const addDojoLog = (msg: string) => {
+      setDojoLogs(prev => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev].slice(0, 8));
+  };
+
+  const uploadMemory = async () => {
+      if (memoryBuffer.current.size === 0) return;
+      const bufferSize = memoryBuffer.current.size;
+      addDojoLog(`💾 Uploading ${bufferSize} new lessons...`);
+
+      const payload = Array.from(memoryBuffer.current.entries()).map(([key, move]) => ({
+          fen: key, move_played: move, loss_count: 1
+      }));
+
+      const { error } = await supabase.from('ai_memory').upsert(payload, { onConflict: 'fen, move_played' });
+      
+      if (error) {
+          console.error("Upload failed", error);
+          addDojoLog("❌ Upload Failed!");
+      } else {
+          addDojoLog("✅ Memory Synced!");
+          memoryBuffer.current.clear();
+      }
+  };
+
+  const startTraining = async () => {
+    if (trainingRef.current) {
+        // STOP
+        trainingRef.current = false;
+        setTraining(false);
+        return;
+    }
+    
+    // START
+    trainingRef.current = true;
+    setTraining(true);
+    setGamesPlayed(0);
+    setLessonsLearned(0);
+    setDojoLogs([]);
+    addDojoLog("🚀 DOJO INITIALIZED");
+
+    let count = 0;
+    const TARGET = 1000; 
+    
+    const runBatch = async () => {
+        if (!trainingRef.current) return; 
+
+        // Run 1 game per tick to prevent UI freeze
+        const BATCH_SIZE = 1; 
+
+        for (let i = 0; i < BATCH_SIZE; i++) {
+            if (count >= TARGET || !trainingRef.current) break;
+            
+            const game = new Chess();
+            let moves = 0;
+            const DEPTH = 2; 
+
+            while (!game.isGameOver() && moves < 100) {
+                moves++;
+                const isStudent = game.turn() === 'b';
+                const [_, move] = minimax(game, DEPTH, -Infinity, Infinity, isStudent, []);
+                if (move) game.move(move);
+                else break;
+                
+                // Yield every few moves to keep UI responsive
+                if (moves % 20 === 0) await new Promise(r => setTimeout(r, 0));
+            }
+
+            if (game.isCheckmate()) {
+                const winner = game.turn() === 'w' ? 'Black' : 'White';
+                if (winner === 'White') {
+                   // STUDENT LOST -> LEARN
+                   game.undo(); 
+                   const fatalMove = game.undo(); 
+                   if (fatalMove) {
+                       const fenBase = game.fen().split(' ').slice(0, 4).join(' ');
+                       if (!memoryBuffer.current.has(fenBase)) {
+                           memoryBuffer.current.set(fenBase, fatalMove.san);
+                           setLessonsLearned(prev => prev + 1);
+                       }
+                   }
+                }
+            }
+            count++;
+            setGamesPlayed(prev => prev + 1);
+        }
+
+        if (count % 10 === 0) {
+            await uploadMemory();
+        }
+
+        if (count < TARGET && trainingRef.current) {
+            setTimeout(runBatch, 10); // Small delay between games
+        } else {
+            if (trainingRef.current) {
+                trainingRef.current = false;
+                setTraining(false);
+                await uploadMemory();
+                addDojoLog("🎉 TRAINING COMPLETE!");
+            } else {
+                addDojoLog("🛑 TRAINING ABORTED");
+            }
+        }
+    };
+    
+    runBatch();
   };
 
   const renderOverview = () => (
@@ -259,11 +422,44 @@ export const AdminDashboard: React.FC = () => {
 
   const renderAiLab = () => (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[80vh]">
-       {/* Controls */}
+       {/* CONTROLS */}
        <div className="lg:col-span-1 space-y-4">
+          
+          {/* TRAINING DOJO WIDGET */}
+          <Card className="bg-slate-900 border-purple-500/30 p-6 relative overflow-hidden">
+             {training && <div className="absolute top-0 right-0 p-2"><Activity className="text-green-500 animate-pulse" /></div>}
+             <h3 className="font-orbitron font-bold text-white mb-4 flex items-center gap-2">
+                <Brain size={20} className="text-purple-500" /> TRAINING DOJO
+             </h3>
+             
+             <div className="grid grid-cols-2 gap-2 mb-4">
+                <div className="bg-black/50 p-2 rounded border border-white/10">
+                    <div className="text-[10px] text-slate-500 uppercase">Games</div>
+                    <div className="text-xl font-mono text-white">{gamesPlayed}</div>
+                </div>
+                <div className="bg-black/50 p-2 rounded border border-white/10">
+                    <div className="text-[10px] text-slate-500 uppercase">Learned</div>
+                    <div className="text-xl font-mono text-purple-400">{lessonsLearned}</div>
+                </div>
+             </div>
+             
+             <div className="h-24 bg-black rounded p-2 text-[10px] font-mono text-green-400/80 overflow-y-auto mb-4 border border-white/5">
+                {dojoLogs.map((l, i) => <div key={i}>{l}</div>)}
+                {dojoLogs.length === 0 && <span className="text-slate-600">Waiting for command...</span>}
+             </div>
+
+             <Button 
+                onClick={startTraining} 
+                className={`w-full ${training ? 'bg-red-600 hover:bg-red-700' : 'bg-purple-600 hover:bg-purple-700'}`}
+             >
+                {training ? 'STOP SIMULATION' : 'START 1,000 GAME BATCH'}
+             </Button>
+          </Card>
+
+          {/* MANUAL RESEARCH LAB */}
           <Card className="bg-slate-900 border-white/10 p-6">
              <h3 className="font-orbitron font-bold text-white mb-4 flex items-center gap-2">
-                <Cpu size={20} className="text-yellow-500" /> AI RESEARCH LAB
+                <Cpu size={20} className="text-yellow-500" /> MANUAL RESEARCH
              </h3>
              <div className="space-y-4">
                 <div>
@@ -300,10 +496,6 @@ export const AdminDashboard: React.FC = () => {
                          {evaluatePosition(game)}
                       </span>
                    </div>
-                   <div className="flex justify-between">
-                      <span className="text-slate-500">NODES/SEC:</span>
-                      <span className="text-white">~12k</span>
-                   </div>
                 </div>
 
                 <Button onClick={() => selectTier(aiLabTier)} className="w-full" variant="outline">
@@ -311,22 +503,9 @@ export const AdminDashboard: React.FC = () => {
                 </Button>
              </div>
           </Card>
-
-          <Card className="bg-slate-900 border-white/10 p-4 flex-1 overflow-y-auto max-h-[400px]">
-             <h4 className="text-xs font-bold text-slate-500 uppercase mb-2">Move Stream</h4>
-             <div className="font-mono text-xs space-y-1 text-slate-400">
-                {gameState.history.map((m, i) => (
-                   <div key={i} className="flex gap-2">
-                      <span className="text-slate-600">{(i/2 + 1).toFixed(0)}.</span>
-                      <span className={i % 2 === 0 ? 'text-white' : 'text-yellow-500'}>{m}</span>
-                   </div>
-                ))}
-                {gameState.history.length === 0 && <span className="opacity-50 italic">Waiting for input...</span>}
-             </div>
-          </Card>
        </div>
 
-       {/* Board - Fixed Alignment/Sizing */}
+       {/* BOARD (MANUAL TEST) */}
        <div className="lg:col-span-2 flex items-center justify-center bg-black/50 rounded-xl border border-white/5 relative p-4">
           <div className="absolute top-4 right-4 bg-black/80 px-3 py-1 rounded text-xs text-yellow-500 font-mono border border-yellow-500/20 z-10">
              DEBUG MODE ACTIVE
