@@ -25,6 +25,7 @@ const useInternalToast = () => {
 export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => void }) => {
   const [game, setGame] = useState(new Chess());
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [tierConfig, setTierConfig] = useState<TierConfig | null>(null);
   
   // Start Sequence State
@@ -44,54 +45,109 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
   const [blackTime, setBlackTime] = useState(0);
   const timerInterval = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // Jackpot State
+  const [currentJackpot, setCurrentJackpot] = useState<number>(0);
+
   const { toast, notification } = useInternalToast();
 
-  // 1. Initial Load
+  // 1. Initial Load & Jackpot Sync
   useEffect(() => {
+    let isMounted = true;
+    let attempts = 0;
+    const MAX_RETRIES = 5;
+
     const fetchGame = async () => {
-      const { data } = await supabase
-        .from('games')
-        .select('*')
-        .eq('id', gameId)
-        .single();
+      try {
+          const { data, error: fetchError } = await supabase
+            .from('games')
+            .select('*')
+            .eq('id', gameId)
+            .single();
 
-      if (data) {
-        try {
-            const loadedGame = new Chess();
-            if (data.pgn) {
-                loadedGame.loadPgn(data.pgn);
-            } else if (data.fen) {
-                loadedGame.load(data.fen);
-            }
+          if (fetchError) throw fetchError;
+          if (!data) throw new Error("Game not found in database.");
 
-            setGame(loadedGame);
-            
-            if (data.tier && TIERS[data.tier as TierLevel]) {
-                const config = TIERS[data.tier as TierLevel];
-                setTierConfig(config);
-                
-                // Sync Server Time (use stored values or fallback to config initial)
-                setWhiteTime(data.white_time ?? config.timeControl.initial);
-                setBlackTime(data.black_time ?? config.timeControl.initial);
-            }
+          if (!isMounted) return;
 
-            if (loadedGame.history().length > 0) {
-                setIsGameActive(true);
-            } else {
-                setCountdown(3);
-                setIsGameActive(false);
-            }
+          try {
+              const loadedGame = new Chess();
+              if (data.pgn) {
+                  loadedGame.loadPgn(data.pgn);
+              } else if (data.fen) {
+                  loadedGame.load(data.fen);
+              }
 
-        } catch (e) {
-            console.error("Loaded invalid Game Data:", e);
-        }
-        setLoading(false);
-      } else {
-        setLoading(false);
-        toast({ title: "Error", description: "Game not found", variant: "destructive" });
+              setGame(loadedGame);
+              
+              if (data.tier && TIERS[data.tier as TierLevel]) {
+                  const config = TIERS[data.tier as TierLevel];
+                  setTierConfig(config);
+                  setCurrentJackpot(config.jackpotSplit); // Initial default
+                  
+                  // Fetch Real Jackpot from DB
+                  const { data: jackpotData } = await supabase
+                      .from('jackpots')
+                      .select('amount')
+                      .eq('tier', data.tier)
+                      .single();
+                  
+                  if (jackpotData) {
+                      setCurrentJackpot(Number(jackpotData.amount));
+                  }
+
+                  // Subscribe to Updates
+                  const channel = supabase
+                      .channel(`jackpot_game_${gameId}`)
+                      .on('postgres_changes', { 
+                          event: 'UPDATE', 
+                          schema: 'public', 
+                          table: 'jackpots',
+                          filter: `tier=eq.${data.tier}`
+                      }, (payload) => {
+                          if (isMounted) setCurrentJackpot(Number(payload.new.amount));
+                      })
+                      .subscribe();
+
+                  // Sync Server Time
+                  setWhiteTime(data.white_time ?? config.timeControl.initial);
+                  setBlackTime(data.black_time ?? config.timeControl.initial);
+              } else {
+                 throw new Error("Invalid Tier Configuration found for this game.");
+              }
+
+              if (loadedGame.history().length > 0) {
+                  setIsGameActive(true);
+              } else {
+                  setCountdown(3);
+                  setIsGameActive(false);
+              }
+              
+              setLoading(false);
+
+          } catch (parseError: any) {
+              console.error("Game data parsing error:", parseError);
+              throw new Error("Failed to initialize game state: " + parseError.message);
+          }
+
+      } catch (e: any) {
+          console.warn(`Attempt ${attempts + 1} failed:`, e.message);
+          
+          if (attempts < MAX_RETRIES) {
+              attempts++;
+              setTimeout(fetchGame, 1000); // Retry every second
+          } else {
+              if (isMounted) {
+                  setLoading(false);
+                  setError(e.message || "Failed to load game.");
+                  toast({ title: "Error", description: "Could not load match data.", variant: "destructive" });
+              }
+          }
       }
     };
+
     fetchGame();
+
+    return () => { isMounted = false; };
   }, [gameId]);
 
   // 2. Countdown Logic
@@ -165,7 +221,7 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
   // 5. Realtime Listener
   useEffect(() => {
     const channel = supabase
-      .channel('game_updates')
+      .channel(`game_updates_${gameId}`)
       .on(
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'games', filter: `id=eq.${gameId}` },
@@ -325,11 +381,36 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
     }
   };
 
-  if (loading || !tierConfig) return <div className="h-screen flex items-center justify-center text-white bg-slate-950"><Loader2 className="animate-spin mr-2"/> Secure Link Established...</div>;
+  if (error) {
+     return (
+         <div className="h-screen flex flex-col items-center justify-center text-white bg-slate-950 gap-6">
+             <div className="bg-red-900/20 p-6 rounded-full border border-red-500/20">
+                 <AlertTriangle className="h-12 w-12 text-red-500" />
+             </div>
+             <div className="text-center">
+                 <h2 className="text-2xl font-orbitron font-bold text-white mb-2">CONNECTION FAILED</h2>
+                 <p className="text-slate-400 max-w-md mx-auto">{error}</p>
+             </div>
+             <Button onClick={onExit} variant="outline" className="border-red-500/50 text-red-400 hover:bg-red-900/20">
+                 <ArrowLeft size={16} className="mr-2" /> RETURN TO BASE
+             </Button>
+         </div>
+     );
+  }
 
-  const isPlayerTurn = game.turn() === 'w'; 
-  const history = game.history(); 
-  const hasMoved = history.length > 0;
+  if (loading || !tierConfig) {
+      return (
+          <div className="h-screen flex flex-col items-center justify-center text-white bg-slate-950 gap-4">
+              <Loader2 className="animate-spin h-10 w-10 text-yellow-500" />
+              <div className="font-orbitron tracking-widest text-sm animate-pulse">ESTABLISHING SECURE LINK...</div>
+          </div>
+      );
+  }
+
+  const hasMoved = game.history().length > 0;
+  // Defined to fix TypeScript errors in JSX
+  const history = game.history();
+  const isPlayerTurn = game.turn() === 'w';
 
   return (
     <div className="min-h-screen bg-slate-950 text-white pt-20 pb-8 flex flex-col items-center relative overflow-hidden">
@@ -475,7 +556,7 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
                         </div>
                         <div className="flex justify-between text-sm">
                             <span className="text-slate-400">Potential</span>
-                            <span className="text-green-400 font-mono">${tierConfig.jackpotSplit.toFixed(2)}</span>
+                            <span className="text-green-400 font-mono text-xl">${currentJackpot.toFixed(2)}</span>
                         </div>
                         <div className="h-px bg-white/10 my-2"></div>
                         <div className="flex items-center gap-2 text-xs text-slate-500">

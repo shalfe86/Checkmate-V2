@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 
 export const Dashboard: React.FC = () => {
-  const { user, profile, wallet, selectTier, enterGame, setView } = useGame();
+  const { user, profile, wallet, selectTier, enterGame, setView, refreshWallet } = useGame();
   
   // Monthly Cap Logic
   const MONTHLY_CAP = 500;
@@ -37,7 +37,13 @@ export const Dashboard: React.FC = () => {
     available: 0
   });
 
-  // Fetch Stats
+  // Live Jackpots State
+  const [jackpots, setJackpots] = useState<Record<string, number>>({
+    [TierLevel.TIER_2]: 5.00,
+    [TierLevel.TIER_3]: 5.00
+  });
+
+  // Fetch Stats & Jackpots
   useEffect(() => {
     if (!user) return;
 
@@ -51,7 +57,7 @@ export const Dashboard: React.FC = () => {
 
         if (data) {
             const wins = data.filter(g => g.winner_id === user.id).length;
-            const losses = data.length - wins; // Assuming draws count as non-wins for simplicity or filter draws
+            const losses = data.length - wins; 
             
             // Calculate Streak
             let currentStreak = 0;
@@ -74,6 +80,27 @@ export const Dashboard: React.FC = () => {
     };
 
     fetchStats();
+
+    // --- LIVE JACKPOT SYNC ---
+    const fetchJackpots = async () => {
+      const { data } = await supabase.from('jackpots').select('*');
+      if (data) {
+        const map: Record<string, number> = {};
+        data.forEach((j: any) => map[j.tier] = Number(j.amount));
+        setJackpots(prev => ({ ...prev, ...map }));
+      }
+    };
+    fetchJackpots();
+
+    const channel = supabase
+      .channel('jackpots_dashboard')
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'jackpots' }, (payload) => {
+         const { tier, amount } = payload.new;
+         setJackpots(prev => ({ ...prev, [tier]: Number(amount) }));
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
   }, [user]);
 
   const handleTierSelect = async (tierLevel: TierLevel) => {
@@ -113,13 +140,21 @@ export const Dashboard: React.FC = () => {
                 .single();
 
             if (error) throw error;
+            
+            // Success! Refresh balance immediately.
+            await refreshWallet();
+
             if (data) {
                 enterGame(data.id);
             }
         } catch (err: any) {
             console.error("Game Creation Error:", err);
-            // Fallback for demo/dev if RLS blocks insert
-            alert(`Failed to initialize match: ${err.message}`);
+            // Handle specific trigger error for insufficient funds
+            if (err.message?.includes('Insufficient funds')) {
+                alert("Transaction Failed: Insufficient funds in wallet.");
+            } else {
+                alert(`Failed to initialize match: ${err.message}`);
+            }
         } finally {
             setCreatingGame(null);
         }
@@ -337,7 +372,9 @@ export const Dashboard: React.FC = () => {
                     
                     <h3 className="text-lg font-bold font-orbitron text-white mb-1">{TIERS[TierLevel.TIER_2].name}</h3>
                     <div className="flex items-baseline gap-2 mb-4">
-                        <span className="text-2xl font-bold text-blue-400">${TIERS[TierLevel.TIER_2].jackpotSplit}</span>
+                        <span className="text-2xl font-bold text-blue-400">
+                            ${jackpots[TierLevel.TIER_2]?.toFixed(2) ?? TIERS[TierLevel.TIER_2].jackpotSplit.toFixed(2)}
+                        </span>
                         <span className="text-xs text-slate-500 uppercase">Jackpot</span>
                     </div>
 
@@ -413,7 +450,7 @@ export const Dashboard: React.FC = () => {
                     <h3 className="text-lg font-bold font-orbitron text-white mb-1">{TIERS[TierLevel.TIER_3].name}</h3>
                     <div className="flex items-baseline gap-2 mb-4">
                         <span className="text-2xl font-bold text-yellow-400 drop-shadow-[0_0_10px_rgba(234,179,8,0.3)]">
-                            ${TIERS[TierLevel.TIER_3].jackpotSplit}
+                            ${jackpots[TierLevel.TIER_3]?.toFixed(2) ?? TIERS[TierLevel.TIER_3].jackpotSplit.toFixed(2)}
                         </span>
                         <span className="text-xs text-slate-500 uppercase">Jackpot</span>
                     </div>

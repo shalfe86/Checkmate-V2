@@ -10,7 +10,7 @@ import { TierConfig, TierLevel } from '../types';
 import { supabase } from '../lib/supabase';
 
 export const TierSelection: React.FC = () => {
-  const { selectTier, enterGame, user, setView, wallet } = useGame();
+  const { selectTier, enterGame, user, setView, wallet, refreshWallet } = useGame();
   const tier3 = TIERS[TierLevel.TIER_3];
   const tier2 = TIERS[TierLevel.TIER_2];
   const tier1 = TIERS[TierLevel.TIER_1];
@@ -21,6 +21,12 @@ export const TierSelection: React.FC = () => {
   
   // Loading State for Game Creation
   const [creatingGame, setCreatingGame] = useState<TierLevel | null>(null);
+
+  // Live Jackpots State
+  const [jackpots, setJackpots] = useState<Record<string, number>>({
+    [TierLevel.TIER_2]: 5.00,
+    [TierLevel.TIER_3]: 5.00
+  });
 
   // Platform Stats State
   const [stats, setStats] = useState({
@@ -47,7 +53,6 @@ export const TierSelection: React.FC = () => {
             ]);
 
             // Calculate Total Payout (Sum of wagers for completed games as a proxy for volume)
-            // Assuming 1v1, total pot is roughly 2x wager. We'll just show total wager volume for accuracy.
             const totalVolume = completedGames?.reduce((sum, game) => sum + (game.wager_amount || 0), 0) || 0;
 
             setStats({
@@ -61,6 +66,27 @@ export const TierSelection: React.FC = () => {
         }
     };
     fetchPlatformStats();
+
+    // --- LIVE JACKPOT SYNC ---
+    const fetchJackpots = async () => {
+      const { data } = await supabase.from('jackpots').select('*');
+      if (data) {
+        const map: Record<string, number> = {};
+        data.forEach((j: any) => map[j.tier] = Number(j.amount));
+        setJackpots(prev => ({ ...prev, ...map }));
+      }
+    };
+    fetchJackpots();
+
+    const channel = supabase
+      .channel('jackpots_public')
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'jackpots' }, (payload) => {
+         const { tier, amount } = payload.new;
+         setJackpots(prev => ({ ...prev, [tier]: Number(amount) }));
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
   }, []);
 
   // Gatekeeper function
@@ -76,7 +102,6 @@ export const TierSelection: React.FC = () => {
       }
 
       // Check for sufficient funds
-      // Default to 0 if wallet is null (data not loaded yet or error)
       const balance = wallet?.balance || 0;
       if (balance < tier.entryFee) {
         alert(`Insufficient funds. You need $${tier.entryFee.toFixed(2)} but only have $${balance.toFixed(2)}. Please contact an admin to top up.`);
@@ -103,12 +128,22 @@ export const TierSelection: React.FC = () => {
                 .single();
 
             if (error) throw error;
+            
+            // Success! The Trigger in Postgres deducted the balance.
+            // Refresh wallet now to show correct amount in UI.
+            await refreshWallet();
+
             if (data) {
                 enterGame(data.id);
             }
         } catch (err: any) {
             console.error("Game Creation Error:", err);
-            alert(`Failed to initialize match: ${err.message}`);
+            // Handle specific database trigger errors if possible
+            if (err.message?.includes('Insufficient funds')) {
+                alert("Transaction Failed: Insufficient funds in wallet.");
+            } else {
+                alert(`Failed to initialize match: ${err.message}`);
+            }
         } finally {
             setCreatingGame(null);
         }
@@ -229,7 +264,7 @@ export const TierSelection: React.FC = () => {
                           <div>
                              <div className="flex items-baseline gap-2">
                                <span className="text-5xl md:text-6xl font-orbitron font-bold text-white tracking-tighter drop-shadow-[0_0_15px_rgba(255,255,255,0.3)]">
-                                 ${tier3.jackpotSplit}
+                                 ${jackpots[TierLevel.TIER_3]?.toFixed(2) ?? tier3.jackpotSplit.toFixed(2)}
                                </span>
                                <span className="text-sm font-tech text-yellow-500/80 font-bold uppercase tracking-widest">USD Win</span>
                              </div>
@@ -284,7 +319,9 @@ export const TierSelection: React.FC = () => {
                         </div>
                         <div className="text-right">
                           <span className="block text-[10px] text-slate-500 uppercase tracking-wider">Pot</span>
-                          <span className="text-3xl font-bold font-orbitron text-white">${tier2.jackpotSplit}</span>
+                          <span className="text-3xl font-bold font-orbitron text-white">
+                              ${jackpots[TierLevel.TIER_2]?.toFixed(2) ?? tier2.jackpotSplit.toFixed(2)}
+                          </span>
                         </div>
                      </div>
                      
