@@ -69,10 +69,10 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
             if (data.tier && TIERS[data.tier as TierLevel]) {
                 const config = TIERS[data.tier as TierLevel];
                 setTierConfig(config);
-                if (loadedGame.history().length === 0) {
-                   setWhiteTime(config.timeControl.initial);
-                   setBlackTime(config.timeControl.initial);
-                }
+                
+                // Sync Server Time (use stored values or fallback to config initial)
+                setWhiteTime(data.white_time ?? config.timeControl.initial);
+                setBlackTime(data.black_time ?? config.timeControl.initial);
             }
 
             if (loadedGame.history().length > 0) {
@@ -185,8 +185,12 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
                       setCountdown(null);
                   }
 
-                  if (tierConfig && newGame.turn() === 'w') {
-                      setBlackTime(t => Math.min(t + tierConfig.timeControl.increment, tierConfig.timeControl.maxCap));
+                  // Sync Clock from DB update if available
+                  if (payload.new.white_time !== undefined && payload.new.white_time !== null) {
+                      setWhiteTime(payload.new.white_time);
+                  }
+                  if (payload.new.black_time !== undefined && payload.new.black_time !== null) {
+                      setBlackTime(payload.new.black_time);
                   }
               } else if (newFen && newFen !== game.fen()) {
                   const newGame = new Chess(newFen);
@@ -238,6 +242,7 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
       
       setGame(tempGame);
       
+      // Optimistic increment for UI smoothness
       if (tierConfig) {
          setWhiteTime(t => Math.min(t + tierConfig.timeControl.increment, tierConfig.timeControl.maxCap));
       }
@@ -261,6 +266,10 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
           const syncedGame = new Chess();
           syncedGame.loadPgn(data.pgn);
           setGame(syncedGame);
+
+          // Force Sync Clocks from Server Response
+          if (typeof data.whiteTime === 'number') setWhiteTime(data.whiteTime);
+          if (typeof data.blackTime === 'number') setBlackTime(data.blackTime);
           
           if (data.gameOver) {
               setIsGameActive(false);
