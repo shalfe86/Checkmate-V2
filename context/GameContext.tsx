@@ -53,9 +53,24 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Computed Admin Status (Strict Server Check)
   const isAdmin = profile?.role === 'admin';
 
+  // --- ANALYTICS: TRACK DAILY VISIT ---
+  const logDailyVisit = async (userId: string) => {
+    try {
+      // We use ignoreDuplicates because the SQL table (user_daily_visits) 
+      // has a primary key on (user_id, visit_date). 
+      // If they already visited today, this silently fails (which is what we want).
+      await supabase.from('user_daily_visits').insert({ user_id: userId }, { count: 'exact' }).select();
+    } catch (e) {
+      // Ignore unique constraint violations
+    }
+  };
+
   // Fetch Profile, Wallet, AND Roles
   const fetchUserData = async (userId: string, isInitialLoad: boolean = false) => {
     try {
+      // 0. Log Visit (Fire and forget)
+      logDailyVisit(userId);
+
       // 1. Fetch Profile
       const { data: profileData, error: profileError } = await supabase
         .from('profiles')

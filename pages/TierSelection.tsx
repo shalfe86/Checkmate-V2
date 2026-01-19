@@ -39,21 +39,41 @@ export const TierSelection: React.FC = () => {
   useEffect(() => {
     const fetchPlatformStats = async () => {
         try {
-            // Parallel execution for speed
+            // Fetch Basic Counts
             const [
                 { count: activeCount }, 
                 { count: userCount }, 
                 { count: completedCount },
-                { data: completedGames }
             ] = await Promise.all([
                 supabase.from('games').select('*', { count: 'exact', head: true }).eq('status', 'active'),
                 supabase.from('user_roles').select('*', { count: 'exact', head: true }).eq('role', 'user'),
-                supabase.from('games').select('*', { count: 'exact', head: true }).eq('status', 'completed'),
-                supabase.from('games').select('wager_amount').eq('status', 'completed')
+                supabase.from('games').select('*', { count: 'exact', head: true }).eq('status', 'completed')
             ]);
 
-            // Calculate Total Payout (Sum of wagers for completed games as a proxy for volume)
-            const totalVolume = completedGames?.reduce((sum, game) => sum + (game.wager_amount || 0), 0) || 0;
+            // Calculate Volume with Pagination
+            let totalVolume = 0;
+            let page = 0;
+            let hasMore = true;
+            const pageSize = 1000;
+
+            // Fetch recent chunks to approximate volume if too large, or all if feasible.
+            // For now, we fetch up to 5000 records to be safe on performance, or all if less.
+            while (hasMore && page < 5) {
+                const { data, error } = await supabase
+                    .from('games')
+                    .select('wager_amount')
+                    .eq('status', 'completed')
+                    .range(page * pageSize, (page + 1) * pageSize - 1);
+
+                if (data && data.length > 0) {
+                    const chunkSum = data.reduce((sum, game) => sum + (game.wager_amount || 0), 0);
+                    totalVolume += chunkSum;
+                    if (data.length < pageSize) hasMore = false;
+                    else page++;
+                } else {
+                    hasMore = false;
+                }
+            }
 
             setStats({
                 activeGames: activeCount || 0,

@@ -43,25 +43,56 @@ export const Dashboard: React.FC = () => {
     [TierLevel.TIER_3]: 5.00
   });
 
+  // Helper to fetch all games with pagination
+  const fetchAllUserGames = async (userId: string) => {
+      let allGames: any[] = [];
+      let page = 0;
+      const pageSize = 1000;
+      let hasMore = true;
+
+      try {
+          while (hasMore) {
+              const { data, error } = await supabase
+                  .from('games')
+                  .select('winner_id, status, created_at')
+                  .or(`white_player_id.eq.${userId},black_player_id.eq.${userId}`)
+                  .order('created_at', { ascending: false })
+                  .range(page * pageSize, (page + 1) * pageSize - 1);
+
+              if (error) throw error;
+
+              if (data) {
+                  allGames = [...allGames, ...data];
+                  if (data.length < pageSize) hasMore = false;
+                  else page++;
+              } else {
+                  hasMore = false;
+              }
+          }
+      } catch (err) {
+          console.error("Error fetching full game history:", err);
+      }
+      return allGames;
+  };
+
   // Fetch Stats & Jackpots
   useEffect(() => {
     if (!user) return;
 
     const fetchStats = async () => {
-        const { data } = await supabase
-            .from('games')
-            .select('winner_id, status, created_at')
-            .or(`white_player_id.eq.${user.id},black_player_id.eq.${user.id}`)
-            .eq('status', 'completed')
-            .order('created_at', { ascending: false });
+        const data = await fetchAllUserGames(user.id);
 
-        if (data) {
-            const wins = data.filter(g => g.winner_id === user.id).length;
-            const losses = data.length - wins; 
+        if (data.length > 0) {
+            // Filter completed games for Win Rate, but keep total for Total Matches
+            const completedGames = data.filter(g => g.status === 'completed');
+            const totalPlayed = data.length; // Includes active/cancelled? User usually wants history of play
             
-            // Calculate Streak
+            const wins = completedGames.filter(g => g.winner_id === user.id).length;
+            const losses = completedGames.length - wins; 
+            
+            // Calculate Streak (from most recent completed)
             let currentStreak = 0;
-            for (const game of data) {
+            for (const game of completedGames) {
                 if (game.winner_id === user.id) {
                     currentStreak++;
                 } else {
@@ -70,11 +101,11 @@ export const Dashboard: React.FC = () => {
             }
 
             setStats({
-                totalMatches: data.length,
+                totalMatches: totalPlayed,
                 wins,
                 losses,
                 streak: currentStreak,
-                winRate: data.length > 0 ? Math.round((wins / data.length) * 100) : 0
+                winRate: completedGames.length > 0 ? Math.round((wins / completedGames.length) * 100) : 0
             });
         }
     };

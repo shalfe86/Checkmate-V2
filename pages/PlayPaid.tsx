@@ -54,21 +54,25 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
   useEffect(() => {
     let isMounted = true;
     let attempts = 0;
-    const MAX_RETRIES = 5;
+    const MAX_RETRIES = 10; // Increased retries
+    const RETRY_DELAY = 1000;
 
     const fetchGame = async () => {
       try {
+          // Fetch Game Data
           const { data, error: fetchError } = await supabase
             .from('games')
             .select('*')
             .eq('id', gameId)
             .single();
 
-          if (fetchError) throw fetchError;
-          if (!data) throw new Error("Game not found in database.");
+          if (fetchError || !data) {
+             throw new Error(fetchError?.message || "Game data unavailable");
+          }
 
           if (!isMounted) return;
 
+          // Parse Game State
           try {
               const loadedGame = new Chess();
               if (data.pgn) {
@@ -82,9 +86,9 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
               if (data.tier && TIERS[data.tier as TierLevel]) {
                   const config = TIERS[data.tier as TierLevel];
                   setTierConfig(config);
-                  setCurrentJackpot(config.jackpotSplit); // Initial default
+                  setCurrentJackpot(config.jackpotSplit); 
                   
-                  // Fetch Real Jackpot from DB
+                  // Fetch Real Jackpot
                   const { data: jackpotData } = await supabase
                       .from('jackpots')
                       .select('amount')
@@ -95,7 +99,7 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
                       setCurrentJackpot(Number(jackpotData.amount));
                   }
 
-                  // Subscribe to Updates
+                  // Subscribe to Jackpot Updates
                   const channel = supabase
                       .channel(`jackpot_game_${gameId}`)
                       .on('postgres_changes', { 
@@ -112,9 +116,10 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
                   setWhiteTime(data.white_time ?? config.timeControl.initial);
                   setBlackTime(data.black_time ?? config.timeControl.initial);
               } else {
-                 throw new Error("Invalid Tier Configuration found for this game.");
+                 throw new Error("Invalid Tier Configuration.");
               }
 
+              // Determine Game Status
               if (loadedGame.history().length > 0) {
                   setIsGameActive(true);
               } else {
@@ -125,21 +130,21 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
               setLoading(false);
 
           } catch (parseError: any) {
-              console.error("Game data parsing error:", parseError);
-              throw new Error("Failed to initialize game state: " + parseError.message);
+              console.error("Parsing Error:", parseError);
+              throw new Error("Data corruption detected.");
           }
 
       } catch (e: any) {
-          console.warn(`Attempt ${attempts + 1} failed:`, e.message);
+          // console.warn(`Connection Attempt ${attempts + 1}/${MAX_RETRIES}...`);
           
           if (attempts < MAX_RETRIES) {
               attempts++;
-              setTimeout(fetchGame, 1000); // Retry every second
+              setTimeout(fetchGame, RETRY_DELAY);
           } else {
               if (isMounted) {
                   setLoading(false);
-                  setError(e.message || "Failed to load game.");
-                  toast({ title: "Error", description: "Could not load match data.", variant: "destructive" });
+                  setError(e.message || "Failed to load game session.");
+                  toast({ title: "Connection Failed", description: "Could not retrieve match data.", variant: "destructive" });
               }
           }
       }
@@ -258,7 +263,6 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
                   if (!showGameOverModal) {
                       setGameOverReason('checkmate');
                       setWinner(payload.new.winner_id === 'AI_BOT' ? 'ai' : 'user');
-                      // setShowGameOverModal(true);
                   }
               }
           } catch(e) {
@@ -390,6 +394,7 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
              <div className="text-center">
                  <h2 className="text-2xl font-orbitron font-bold text-white mb-2">CONNECTION FAILED</h2>
                  <p className="text-slate-400 max-w-md mx-auto">{error}</p>
+                 <p className="text-xs text-slate-500 mt-2">Check your internet or contact support.</p>
              </div>
              <Button onClick={onExit} variant="outline" className="border-red-500/50 text-red-400 hover:bg-red-900/20">
                  <ArrowLeft size={16} className="mr-2" /> RETURN TO BASE
@@ -403,6 +408,7 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
           <div className="h-screen flex flex-col items-center justify-center text-white bg-slate-950 gap-4">
               <Loader2 className="animate-spin h-10 w-10 text-yellow-500" />
               <div className="font-orbitron tracking-widest text-sm animate-pulse">ESTABLISHING SECURE LINK...</div>
+              <div className="text-xs text-slate-500">Syncing with Game Server</div>
           </div>
       );
   }
