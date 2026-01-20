@@ -6,7 +6,7 @@ import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Timer } from '../components/game/Timer';
 import { Modal } from '../components/ui/Modal';
-import { Loader2, ShieldCheck, AlertTriangle, ArrowLeft, Activity, Flag, Skull } from 'lucide-react';
+import { Loader2, ShieldCheck, AlertTriangle, ArrowLeft, Activity, Flag, Skull, Hourglass } from 'lucide-react';
 import { TIERS } from '../constants';
 import { TierConfig, TierLevel } from '../types';
 
@@ -36,6 +36,7 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
   const [showGameOverModal, setShowGameOverModal] = useState(false);
   const [gameOverReason, setGameOverReason] = useState<'checkmate' | 'timeout' | 'resign' | 'draw' | null>(null);
   const [winner, setWinner] = useState<'user' | 'ai' | 'draw' | null>(null);
+  const [reviewStatus, setReviewStatus] = useState<'none' | 'verifying' | 'settled'>('none');
 
   const [showExitModal, setShowExitModal] = useState(false);
   const [exitType, setExitType] = useState<'cancel' | 'forfeit'>('cancel');
@@ -54,7 +55,7 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
   useEffect(() => {
     let isMounted = true;
     let attempts = 0;
-    const MAX_RETRIES = 10; // Increased retries
+    const MAX_RETRIES = 10;
     const RETRY_DELAY = 1000;
 
     const fetchGame = async () => {
@@ -135,8 +136,6 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
           }
 
       } catch (e: any) {
-          // console.warn(`Connection Attempt ${attempts + 1}/${MAX_RETRIES}...`);
-          
           if (attempts < MAX_RETRIES) {
               attempts++;
               setTimeout(fetchGame, RETRY_DELAY);
@@ -260,10 +259,17 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
 
               if (status === 'completed') {
                   setIsGameActive(false);
-                  if (!showGameOverModal) {
-                      setGameOverReason('checkmate');
-                      setWinner(payload.new.winner_id === 'AI_BOT' ? 'ai' : 'user');
+                  const isAiWin = payload.new.winner_id === 'AI_BOT';
+                  
+                  if (!isAiWin && payload.new.winner_id) {
+                      // If we won, the server might still be calculating the split
+                      setReviewStatus('settled');
+                      setWinner('user');
+                  } else {
+                      setWinner(isAiWin ? 'ai' : 'draw');
                   }
+                  setGameOverReason(payload.new.end_reason);
+                  setShowGameOverModal(true);
               }
           } catch(e) {
               console.error("Realtime update error", e);
@@ -333,9 +339,17 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
           
           if (data.gameOver) {
               setIsGameActive(false);
-              setWinner(data.winner === 'user' ? 'user' : 'ai');
-              setGameOverReason('checkmate');
-              setShowGameOverModal(true);
+              
+              if (data.winner === 'user') {
+                  // Show "Reviewing" state immediately
+                  setReviewStatus('verifying');
+                  setWinner('user');
+                  setShowGameOverModal(true);
+              } else {
+                  setWinner('ai');
+                  setGameOverReason(data.reason);
+                  setShowGameOverModal(true);
+              }
           }
       }
 
@@ -350,7 +364,7 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
     }
   };
 
-  // 7. Handle Forfeit / Cancel (Updated)
+  // 7. Handle Forfeit / Cancel
   const handleExitAction = () => {
     const isFirstMove = game.history().length === 0;
     setExitType(isFirstMove ? 'cancel' : 'forfeit');
@@ -383,6 +397,46 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
             onExit();
         }
     }
+  };
+
+  const renderGameOverContent = () => {
+      if (winner === 'user') {
+          if (reviewStatus === 'verifying') {
+              return (
+                  <div className="space-y-4">
+                      <div className="text-4xl animate-pulse text-yellow-500">
+                          <Hourglass size={64} className="mx-auto" />
+                      </div>
+                      <h2 className="text-2xl font-orbitron font-bold text-white">CHECKMATE CONFIRMED</h2>
+                      <div className="text-sm text-slate-300 bg-slate-800/50 p-4 rounded-lg border border-yellow-500/20">
+                          <p className="font-bold text-yellow-400 mb-2">WIN UNDER REVIEW</p>
+                          <p>Verifying active matches for jackpot settlement...</p>
+                          <p className="mt-2 text-xs text-slate-500">Your winnings will be deposited automatically.</p>
+                      </div>
+                  </div>
+              );
+          }
+          return (
+              <div className="space-y-4">
+                  <div className="text-4xl animate-bounce text-green-500">
+                      <ShieldCheck size={64} className="mx-auto" />
+                  </div>
+                  <h2 className="text-3xl font-orbitron font-bold text-white">VICTORY SECURED</h2>
+                  <p className="text-slate-400">Funds transferred to wallet.</p>
+              </div>
+          );
+      }
+      return (
+          <div className="space-y-4">
+              <div className="text-4xl animate-pulse text-red-500">
+                  <Skull size={64} className="mx-auto" />
+              </div>
+              <h2 className="text-3xl font-orbitron font-bold text-red-500">DEFEAT</h2>
+              <p className="text-slate-400">
+                  {gameOverReason === 'timeout' ? "Time Expired." : "Checkmate Executed."}
+              </p>
+          </div>
+      );
   };
 
   if (error) {
@@ -655,29 +709,11 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
             title="MATCH REPORT"
         >
             <div className="text-center space-y-6 py-4">
-                {winner === 'user' ? (
-                    <div className="space-y-4">
-                        <div className="text-4xl animate-bounce text-yellow-500">
-                            <ShieldCheck size={64} className="mx-auto" />
-                        </div>
-                        <h2 className="text-3xl font-orbitron font-bold text-white">VICTORY</h2>
-                        <p className="text-slate-400">Target Neutralized. Funds Secured.</p>
-                    </div>
-                ) : (
-                    <div className="space-y-4">
-                        <div className="text-4xl animate-pulse text-red-500">
-                            <Skull size={64} className="mx-auto" />
-                        </div>
-                        <h2 className="text-3xl font-orbitron font-bold text-red-500">DEFEAT</h2>
-                        <p className="text-slate-400">
-                            {gameOverReason === 'timeout' ? "Time Expired." : "Checkmate Executed."}
-                        </p>
-                    </div>
-                )}
+                {renderGameOverContent()}
                 
                 <div className="pt-4 border-t border-white/10">
-                    <Button onClick={() => onExit()} className="w-full">
-                        RETURN TO BASE
+                    <Button onClick={() => onExit()} className="w-full" disabled={reviewStatus === 'verifying'}>
+                        {reviewStatus === 'verifying' ? "PLEASE WAIT..." : "RETURN TO BASE"}
                     </Button>
                 </div>
             </div>
