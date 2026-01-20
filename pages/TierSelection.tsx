@@ -375,7 +375,7 @@ export const TierSelection: React.FC = () => {
                   {[
                     { label: 'Total Matches', value: stats.totalGamesPlayed.toLocaleString() },
                     { label: 'Total Paid Out', value: `$${stats.totalPayout.toFixed(2)}` },
-                    { label: 'Active Games', value: stats.activeGames.toLocaleString() },
+                    { label: 'Active Matches', value: stats.activeGames.toLocaleString() },
                     { label: 'Total Users', value: stats.totalAccounts.toLocaleString() },
                   ].map((stat, i) => (
                     <div key={i} className="py-6 md:py-8 text-center group cursor-default">

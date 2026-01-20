@@ -70,8 +70,7 @@ export const logDailyVisit = async (userId: string): Promise<ApiResponse> => {
 
     return { success: true };
   } catch (e: any) {
-    // Silent fail for analytics is acceptable, but we log it
-    // console.warn('API Warning [logDailyVisit]:', e.message);
+    // Silent fail for analytics is acceptable
     return { success: false, error: e.message };
   }
 };
@@ -261,6 +260,21 @@ export const getPlatformStats = async (): Promise<ApiResponse> => {
 // 4. ADMIN FEATURES
 // ==========================================
 
+/**
+ * NEW: Fetches the aggregated admin dashboard data in one secure server call.
+ * Bypasses RLS to show all user balances and game stats.
+ */
+export const getAdminDashboardData = async (): Promise<ApiResponse> => {
+  try {
+    const { data, error } = await supabase.rpc('get_admin_dashboard_data');
+    if (error) throw error;
+    return { success: true, data };
+  } catch (e: any) {
+    return { success: false, error: e.message };
+  }
+};
+
+// Legacy analytics call (kept for backward compatibility if needed)
 export const getAdminAnalytics = async (days: number = 7): Promise<ApiResponse> => {
   try {
     const { data, error } = await supabase.rpc('get_admin_analytics', { report_days: days });
@@ -271,6 +285,8 @@ export const getAdminAnalytics = async (days: number = 7): Promise<ApiResponse> 
   }
 };
 
+// Legacy user fetch (This is likely restricted by RLS for non-admins)
+// Use getAdminDashboardData() instead for full lists.
 export const getAllUsers = async (): Promise<ApiResponse<any[]>> => {
   try {
     const { data: profiles } = await supabase.from('profiles').select('*');
