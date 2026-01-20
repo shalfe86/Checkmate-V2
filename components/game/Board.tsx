@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useContext } from 'react';
+import React, { useEffect, useRef, useContext, memo } from 'react';
 import { Chessground } from 'chessground'; // Assuming global type availability or library install
 import { useGame, GameContext } from '../../context/GameContext';
 // @ts-ignore
@@ -14,7 +14,7 @@ interface BoardProps {
   orientation?: 'white' | 'black';
 }
 
-export const Board: React.FC<BoardProps> = ({ className, fen, onMove, orientation }) => {
+export const Board = memo<BoardProps>(({ className, fen, onMove, orientation }) => {
   // We try to access context safely. If it's undefined (e.g. used in PlayPaid without provider), we fallback to props.
   const context = useContext(GameContext);
   const hasContext = context !== undefined;
@@ -97,7 +97,11 @@ export const Board: React.FC<BoardProps> = ({ className, fen, onMove, orientatio
       </div>
     </div>
   );
-};
+}, (prevProps, nextProps) => {
+    // Custom comparison function
+    // Only re-render if FEN or Orientation changes. Ignore everything else.
+    return prevProps.fen === nextProps.fen && prevProps.orientation === nextProps.orientation;
+});
 
 // Helper function to calculate legal moves for Chessground
 function toDests(fen: string) {

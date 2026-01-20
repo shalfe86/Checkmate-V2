@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { TIERS } from '../constants';
 import { useGame } from '../context/GameContext';
 import { Card } from '../components/ui/Card';
@@ -36,6 +36,9 @@ export const TierSelection: React.FC = () => {
       totalGamesPlayed: 0,
       totalPayout: 0
   });
+
+  // Ref for performance-optimized mouse tracking
+  const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     // 1. Fetch Platform Stats via API
@@ -116,22 +119,34 @@ export const TierSelection: React.FC = () => {
     }
   };
 
-  // Mouse Parallax Logic
-  const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+  // Performance Optimized Mouse Parallax Logic
   useEffect(() => {
     const handleMove = (e: MouseEvent) => {
-      setMousePos({ 
-        x: (e.clientX / window.innerWidth - 0.5) * 20, 
-        y: (e.clientY / window.innerHeight - 0.5) * 20 
-      });
+      if (!containerRef.current) return;
+      
+      // Calculate values
+      const x = (e.clientX / window.innerWidth - 0.5) * 20;
+      const y = (e.clientY / window.innerHeight - 0.5) * 20;
+
+      // UPDATE CSS VARIABLES DIRECTLY
+      containerRef.current.style.setProperty('--mouse-x', `${x}px`);
+      containerRef.current.style.setProperty('--mouse-y', `${y}px`);
     };
+    
     window.addEventListener('mousemove', handleMove);
     return () => window.removeEventListener('mousemove', handleMove);
   }, []);
 
   return (
     <>
-      <div className="min-h-screen flex flex-col relative bg-[#020202] text-white selection:bg-yellow-500/30 overflow-x-hidden">
+      <div 
+        ref={containerRef}
+        className="min-h-screen flex flex-col relative bg-[#020202] text-white selection:bg-yellow-500/30 overflow-x-hidden"
+        style={{ 
+            '--mouse-x': '0px', 
+            '--mouse-y': '0px' 
+        } as React.CSSProperties}
+      >
         
         {/* 1. Deep Atmospheric Parallax Background */}
         <div className="fixed inset-0 z-0 pointer-events-none">
@@ -140,7 +155,7 @@ export const TierSelection: React.FC = () => {
             className="absolute top-[-10%] left-[20%] w-[60vw] h-[60vw] rounded-full blur-[150px] opacity-20"
             style={{ 
               background: 'radial-gradient(circle, #4a3805 0%, transparent 70%)',
-              transform: `translate(${mousePos.x * -2}px, ${mousePos.y * -2}px)` 
+              transform: `translate(calc(var(--mouse-x) * -2), calc(var(--mouse-y) * -2))` 
             }}
           ></div>
           {/* Moving Orb 2 */}
@@ -148,7 +163,7 @@ export const TierSelection: React.FC = () => {
             className="absolute bottom-[-20%] right-[-10%] w-[50vw] h-[50vw] rounded-full blur-[120px] opacity-10"
             style={{ 
               background: 'radial-gradient(circle, #1a202c 0%, transparent 70%)',
-              transform: `translate(${mousePos.x * 2}px, ${mousePos.y * 2}px)` 
+              transform: `translate(calc(var(--mouse-x) * 2), calc(var(--mouse-y) * 2))` 
             }}
           ></div>
           
@@ -158,7 +173,7 @@ export const TierSelection: React.FC = () => {
             style={{
                backgroundImage: 'linear-gradient(#fff 1px, transparent 1px), linear-gradient(90deg, #fff 1px, transparent 1px)',
                backgroundSize: '40px 40px',
-               transform: `perspective(1000px) rotateX(60deg) translateY(${mousePos.y}px) scale(2)`
+               transform: `perspective(1000px) rotateX(60deg) translateY(var(--mouse-y)) scale(2)`
             }}
           ></div>
         </div>
