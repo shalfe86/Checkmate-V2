@@ -6,6 +6,7 @@ import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Modal } from '../components/ui/Modal';
 import { supabase } from '../lib/supabase';
+import * as api from '../lib/api';
 import { 
   Target, Zap, Shield, Crown, TrendingUp, 
   Activity, Wallet, Lock, AlertTriangle, Swords, Flame, Loader2, DollarSign
@@ -43,70 +44,42 @@ export const Dashboard: React.FC = () => {
     [TierLevel.TIER_3]: 5.00
   });
 
-  // Helper to fetch all games with pagination
-  const fetchAllUserGames = async (userId: string) => {
-      let allGames: any[] = [];
-      let page = 0;
-      const pageSize = 1000;
-      let hasMore = true;
-
-      try {
-          while (hasMore) {
-              const { data, error } = await supabase
-                  .from('games')
-                  .select('winner_id, status, created_at')
-                  .or(`white_player_id.eq.${userId},black_player_id.eq.${userId}`)
-                  .order('created_at', { ascending: false })
-                  .range(page * pageSize, (page + 1) * pageSize - 1);
-
-              if (error) throw error;
-
-              if (data) {
-                  allGames = [...allGames, ...data];
-                  if (data.length < pageSize) hasMore = false;
-                  else page++;
-              } else {
-                  hasMore = false;
-              }
-          }
-      } catch (err) {
-          console.error("Error fetching full game history:", err);
-      }
-      return allGames;
-  };
-
   // Fetch Stats & Jackpots
   useEffect(() => {
     if (!user) return;
 
     const fetchStats = async () => {
-        const data = await fetchAllUserGames(user.id);
-
-        if (data.length > 0) {
-            // Filter completed games for Win Rate, but keep total for Total Matches
-            const completedGames = data.filter(g => g.status === 'completed');
-            const totalPlayed = data.length; // Includes active/cancelled? User usually wants history of play
-            
-            const wins = completedGames.filter(g => g.winner_id === user.id).length;
-            const losses = completedGames.length - wins; 
-            
-            // Calculate Streak (from most recent completed)
-            let currentStreak = 0;
-            for (const game of completedGames) {
-                if (game.winner_id === user.id) {
-                    currentStreak++;
-                } else {
-                    break;
+        // Use API to fetch user game history
+        const result = await api.getUserGames(user.id);
+        
+        if (result.success && result.data) {
+            const data = result.data;
+            if (data.length > 0) {
+                // Filter completed games for Win Rate, but keep total for Total Matches
+                const completedGames = data.filter((g: any) => g.status === 'completed');
+                const totalPlayed = data.length; 
+                
+                const wins = completedGames.filter((g: any) => g.winner_id === user.id).length;
+                const losses = completedGames.length - wins; 
+                
+                // Calculate Streak (from most recent completed)
+                let currentStreak = 0;
+                for (const game of completedGames) {
+                    if (game.winner_id === user.id) {
+                        currentStreak++;
+                    } else {
+                        break;
+                    }
                 }
-            }
 
-            setStats({
-                totalMatches: totalPlayed,
-                wins,
-                losses,
-                streak: currentStreak,
-                winRate: completedGames.length > 0 ? Math.round((wins / completedGames.length) * 100) : 0
-            });
+                setStats({
+                    totalMatches: totalPlayed,
+                    wins,
+                    losses,
+                    streak: currentStreak,
+                    winRate: completedGames.length > 0 ? Math.round((wins / completedGames.length) * 100) : 0
+                });
+            }
         }
     };
 
@@ -114,11 +87,9 @@ export const Dashboard: React.FC = () => {
 
     // --- LIVE JACKPOT SYNC ---
     const fetchJackpots = async () => {
-      const { data } = await supabase.from('jackpots').select('*');
-      if (data) {
-        const map: Record<string, number> = {};
-        data.forEach((j: any) => map[j.tier] = Number(j.amount));
-        setJackpots(prev => ({ ...prev, ...map }));
+      const response = await api.getJackpots();
+      if (response.success && response.data) {
+        setJackpots(prev => ({ ...prev, ...response.data }));
       }
     };
     fetchJackpots();
@@ -155,40 +126,24 @@ export const Dashboard: React.FC = () => {
 
     // 2. Server Game Creation (Paid Tiers)
     if (tier.validation === 'server') {
+        if (!user) return;
         setCreatingGame(tierLevel);
-        try {
-            const { data, error } = await supabase
-                .from('games')
-                .insert({
-                    white_player_id: user?.id,
-                    status: 'active',
-                    tier: tierLevel,
-                    wager_amount: tier.entryFee,
-                    is_server_game: true,
-                    fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'
-                })
-                .select()
-                .single();
+        
+        const result = await api.createGame(user.id, tierLevel, tier.entryFee);
 
-            if (error) throw error;
-            
+        if (result.success && result.data) {
             // Success! Refresh balance immediately.
             await refreshWallet();
-
-            if (data) {
-                enterGame(data.id);
-            }
-        } catch (err: any) {
-            console.error("Game Creation Error:", err);
-            // Handle specific trigger error for insufficient funds
-            if (err.message?.includes('Insufficient funds')) {
+            enterGame(result.data.id);
+        } else {
+             console.error("Game Creation Error:", result.error);
+             if (result.error?.includes('Insufficient funds')) {
                 alert("Transaction Failed: Insufficient funds in wallet.");
             } else {
-                alert(`Failed to initialize match: ${err.message}`);
+                alert(`Failed to initialize match: ${result.error}`);
             }
-        } finally {
-            setCreatingGame(null);
         }
+        setCreatingGame(null);
     } else {
         // 3. Client Side Game (Free Tier)
         selectTier(tierLevel);

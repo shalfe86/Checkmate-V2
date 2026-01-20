@@ -6,7 +6,7 @@ import { Board } from '../components/game/Board';
 import { evaluatePosition } from '../lib/engine';
 import { TierLevel } from '../types';
 import { TIERS } from '../constants';
-import { supabase } from '../lib/supabase';
+import * as api from '../lib/api';
 import { 
   ShieldAlert, Users, DollarSign, Activity, Terminal, 
   Search, Ban, AlertTriangle, Eye, Server, Cpu, Database,
@@ -116,41 +116,25 @@ export const AdminDashboard: React.FC = () => {
     if (!isAdmin) return;
 
     const fetchData = async () => {
-        // 1. Fetch Users
-        const { data: profiles } = await supabase.from('profiles').select('*');
-        const { data: roles } = await supabase.from('user_roles').select('user_id, role');
-        const { data: wallets } = await supabase.from('wallets').select('*');
-
-        if (profiles) {
-            const mergedUsers = profiles.map(profile => {
-                const userRoleEntry = roles?.find(r => r.user_id === profile.id);
-                const userWallet = wallets?.find(w => w.user_id === profile.id);
-                return {
-                    ...profile,
-                    role: userRoleEntry ? userRoleEntry.role : 'user',
-                    balance: userWallet ? userWallet.balance : 0,
-                    wallet_id: userWallet ? userWallet.id : null
-                };
-            });
-            setUserList(mergedUsers);
+        // 1. Fetch Users via API
+        const userResponse = await api.getAllUsers();
+        if (userResponse.success && userResponse.data) {
+           setUserList(userResponse.data);
         }
 
-        // 2. Fetch Aggregated Analytics from RPC
+        // 2. Fetch Aggregated Analytics from RPC via API
         try {
-            const { data: rpcData, error: rpcError } = await supabase.rpc('get_admin_analytics', { report_days: 7 });
+            const rpcResponse = await api.getAdminAnalytics(7);
+            const rpcData = rpcResponse.data;
             
-            if (rpcError) throw rpcError;
-            
-            // Map the data structure from your new SQL table
             const trafficRaw = rpcData?.traffic || [];
             const activityRaw = rpcData?.activity || [];
 
-            // A. Process Traffic (From user_daily_visits table)
-            // trafficRaw comes as [{ visit_date: '...', unique_users: 5 }]
+            // A. Process Traffic
             const formattedTraffic = trafficRaw.map((t: any) => ({
                 date: t.visit_date ? t.visit_date.substring(5) : 'N/A', // MM-DD
                 visitors: t.unique_users
-            })).reverse(); // Supabase typically returns DESC, we want ASC for charts usually
+            })).reverse();
 
             // B. Process Activity for Tier Breakdown
             const tierCounts = { [TierLevel.TIER_1]: 0, [TierLevel.TIER_2]: 0, [TierLevel.TIER_3]: 0 };
@@ -169,16 +153,9 @@ export const AdminDashboard: React.FC = () => {
                 { name: 'World (T3)', value: tierCounts[TierLevel.TIER_3] },
             ];
 
-            // 3. Fallback to basic Games table query for Financial Volume (since RPC didn't include wager sums in V1)
-            const { data: games } = await supabase
-                .from('games')
-                .select('wager_amount, status, created_at')
-                .eq('status', 'completed');
-            
-            let volume = 0;
-            if (games) {
-                volume = games.reduce((sum, g) => sum + (g.wager_amount || 0), 0);
-            }
+            // 3. Platform Volume from API stats
+            const statsResponse = await api.getPlatformStats();
+            const volume = statsResponse.success && statsResponse.data ? statsResponse.data.totalPayout : 0;
 
             // 4. KPIs
             const uniqueVisitorsLast7d = trafficRaw.reduce((acc: number, curr: any) => acc + curr.unique_users, 0);
@@ -187,7 +164,7 @@ export const AdminDashboard: React.FC = () => {
                 traffic: formattedTraffic,
                 tiers: tierChartData,
                 userActivity: activityRaw,
-                avgGamesPerUser: profiles?.length ? parseFloat((totalActivityGames / profiles.length).toFixed(1)) : 0,
+                avgGamesPerUser: userList.length ? parseFloat((totalActivityGames / userList.length).toFixed(1)) : 0,
                 totalVolume: volume,
                 activeUsers24h: trafficRaw.length > 0 ? trafficRaw[0].unique_users : 0 // Most recent entry is today
             });
@@ -210,18 +187,12 @@ export const AdminDashboard: React.FC = () => {
   if (!isAdmin) return null;
 
   // --- AI LAB & TRAINING LOGIC REMAINS SAME ---
-  // (Helper functions from previous iteration integrated here)
   const startAiLab = (tier: TierLevel) => {
     setAiLabTier(tier);
     selectTier(tier); 
   };
   const addDojoLog = (msg: string) => {
       setDojoLogs(prev => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev].slice(0, 8));
-  };
-  const uploadMemory = async () => {
-      if (memoryBuffer.current.size === 0) return;
-      addDojoLog(`💾 Uploading ${memoryBuffer.current.size} new lessons...`);
-      memoryBuffer.current.clear();
   };
   const startTraining = async () => {
     if (trainingRef.current) {

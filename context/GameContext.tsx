@@ -2,9 +2,10 @@ import React, { createContext, useContext, useState, useEffect, useCallback, use
 import { Chess } from 'chess.js';
 import { TierLevel, TierConfig, GameState, UserProfile, Wallet } from '../types';
 import { TIERS } from '../constants';
-import { submitMove, supabase } from '../lib/supabase';
+import { supabase } from '../lib/supabase';
 import { User } from '@supabase/supabase-js';
 import { getBestMove } from '../lib/engine';
+import * as api from '../lib/api';
 
 type AppView = 'lobby' | 'rules' | 'terms' | 'admin';
 
@@ -53,61 +54,32 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Computed Admin Status (Strict Server Check)
   const isAdmin = profile?.role === 'admin';
 
-  // --- ANALYTICS: TRACK DAILY VISIT ---
-  const logDailyVisit = async (userId: string) => {
-    try {
-      // We use ignoreDuplicates because the SQL table (user_daily_visits) 
-      // has a primary key on (user_id, visit_date). 
-      // If they already visited today, this silently fails (which is what we want).
-      await supabase.from('user_daily_visits').insert({ user_id: userId }, { count: 'exact' }).select();
-    } catch (e) {
-      // Ignore unique constraint violations
-    }
-  };
-
-  // Fetch Profile, Wallet, AND Roles
+  // Fetch Profile, Wallet, AND Roles using Centralized API
   const fetchUserData = async (userId: string, isInitialLoad: boolean = false) => {
     try {
-      // 0. Log Visit (Fire and forget)
-      logDailyVisit(userId);
+      // 0. Log Visit (Fire and forget via API)
+      api.logDailyVisit(userId);
 
-      // 1. Fetch Profile
-      const { data: profileData, error: profileError } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', userId)
-        .single();
+      // 1. Fetch Profile & Role
+      const profileResponse = await api.getUserProfile(userId);
       
-      // 2. Fetch Role (NEW)
-      const { data: roleData, error: roleError } = await supabase
-        .from('user_roles')
-        .select('role')
-        .eq('user_id', userId)
-        .maybeSingle(); // Use maybeSingle in case the trigger hasn't fired yet
-        
-      const userRole = roleData?.role ?? 'user';
-
-      if (!profileError && profileData) {
-        // We artificially attach the role to the profile object for the app to use
-        setProfile({ ...profileData, role: userRole });
+      if (profileResponse.success && profileResponse.data) {
+        const userProfile = profileResponse.data;
+        setProfile(userProfile);
 
         // Auto-redirect admin on login
-        if (isInitialLoad && userRole === 'admin') {
+        if (isInitialLoad && userProfile.role === 'admin') {
            setCurrentView('admin');
         }
       }
       
-      // 3. Fetch Wallet
-      const { data: walletData, error: walletError } = await supabase
-        .from('wallets')
-        .select('*')
-        .eq('user_id', userId)
-        .single();
+      // 2. Fetch Wallet
+      const walletResponse = await api.getUserWallet(userId);
 
-      if (!walletError && walletData) {
+      if (walletResponse.success && walletResponse.data) {
          setWallet({
-          ...walletData,
-          monthly_earnings: walletData.monthly_earnings ?? 0
+          ...walletResponse.data,
+          monthly_earnings: walletResponse.data.monthly_earnings ?? 0
         });
       }
     } catch (error) {

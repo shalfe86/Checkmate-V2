@@ -8,6 +8,7 @@ import { AuthModal } from '../components/auth/AuthModal';
 import { Trophy, Clock, DollarSign, ShieldAlert, ChevronRight, Crown, FileText, Mail, Scale, Sparkles, Zap, Target, Star, Hexagon, Loader2, Wallet } from 'lucide-react';
 import { TierConfig, TierLevel } from '../types';
 import { supabase } from '../lib/supabase';
+import * as api from '../lib/api';
 
 export const TierSelection: React.FC = () => {
   const { selectTier, enterGame, user, setView, wallet, refreshWallet } = useGame();
@@ -37,67 +38,25 @@ export const TierSelection: React.FC = () => {
   });
 
   useEffect(() => {
+    // 1. Fetch Platform Stats via API
     const fetchPlatformStats = async () => {
-        try {
-            // Fetch Basic Counts
-            const [
-                { count: activeCount }, 
-                { count: userCount }, 
-                { count: completedCount },
-            ] = await Promise.all([
-                supabase.from('games').select('*', { count: 'exact', head: true }).eq('status', 'active'),
-                supabase.from('user_roles').select('*', { count: 'exact', head: true }).eq('role', 'user'),
-                supabase.from('games').select('*', { count: 'exact', head: true }).eq('status', 'completed')
-            ]);
-
-            // Calculate Volume with Pagination
-            let totalVolume = 0;
-            let page = 0;
-            let hasMore = true;
-            const pageSize = 1000;
-
-            // Fetch recent chunks to approximate volume if too large, or all if feasible.
-            // For now, we fetch up to 5000 records to be safe on performance, or all if less.
-            while (hasMore && page < 5) {
-                const { data, error } = await supabase
-                    .from('games')
-                    .select('wager_amount')
-                    .eq('status', 'completed')
-                    .range(page * pageSize, (page + 1) * pageSize - 1);
-
-                if (data && data.length > 0) {
-                    const chunkSum = data.reduce((sum, game) => sum + (game.wager_amount || 0), 0);
-                    totalVolume += chunkSum;
-                    if (data.length < pageSize) hasMore = false;
-                    else page++;
-                } else {
-                    hasMore = false;
-                }
-            }
-
-            setStats({
-                activeGames: activeCount || 0,
-                totalAccounts: userCount || 0,
-                totalGamesPlayed: completedCount || 0,
-                totalPayout: totalVolume
-            });
-        } catch (e) {
-            console.error("Stats fetch error", e);
+        const response = await api.getPlatformStats();
+        if (response.success && response.data) {
+            setStats(response.data);
         }
     };
     fetchPlatformStats();
 
-    // --- LIVE JACKPOT SYNC ---
+    // 2. Fetch Jackpots via API
     const fetchJackpots = async () => {
-      const { data } = await supabase.from('jackpots').select('*');
-      if (data) {
-        const map: Record<string, number> = {};
-        data.forEach((j: any) => map[j.tier] = Number(j.amount));
-        setJackpots(prev => ({ ...prev, ...map }));
+      const response = await api.getJackpots();
+      if (response.success && response.data) {
+        setJackpots(prev => ({ ...prev, ...response.data }));
       }
     };
     fetchJackpots();
 
+    // 3. Realtime Jackpot Sync (Keep this direct Supabase for subscriptions)
     const channel = supabase
       .channel('jackpots_public')
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'jackpots' }, (payload) => {
@@ -131,42 +90,26 @@ export const TierSelection: React.FC = () => {
 
     // Check validation mode
     if (tier.validation === 'server') {
-        // PAID TIER: Create game on server
+        // PAID TIER: Create game on server using API
+        if (!user) return; // Should be handled above
+        
         setCreatingGame(tierLevel);
-        try {
-            const { data, error } = await supabase
-                .from('games')
-                .insert({
-                    white_player_id: user?.id,
-                    status: 'active',
-                    tier: tierLevel,
-                    wager_amount: tier.entryFee,
-                    is_server_game: true,
-                    fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'
-                })
-                .select()
-                .single();
+        
+        const result = await api.createGame(user.id, tierLevel, tier.entryFee);
 
-            if (error) throw error;
-            
+        if (result.success && result.data) {
             // Success! The Trigger in Postgres deducted the balance.
-            // Refresh wallet now to show correct amount in UI.
             await refreshWallet();
-
-            if (data) {
-                enterGame(data.id);
-            }
-        } catch (err: any) {
-            console.error("Game Creation Error:", err);
-            // Handle specific database trigger errors if possible
-            if (err.message?.includes('Insufficient funds')) {
+            enterGame(result.data.id);
+        } else {
+             console.error("Game Creation Error:", result.error);
+             if (result.error?.includes('Insufficient funds')) {
                 alert("Transaction Failed: Insufficient funds in wallet.");
             } else {
-                alert(`Failed to initialize match: ${err.message}`);
+                alert(`Failed to initialize match: ${result.error}`);
             }
-        } finally {
-            setCreatingGame(null);
         }
+        setCreatingGame(null);
     } else {
         // FREE TIER: Client side
         selectTier(tierLevel);
