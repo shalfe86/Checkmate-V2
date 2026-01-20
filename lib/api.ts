@@ -230,8 +230,6 @@ export const getJackpots = async (): Promise<ApiResponse<Record<string, number>>
 
 export const getPlatformStats = async (): Promise<ApiResponse> => {
   try {
-    // Call the secure database function (RPC)
-    // This is instant because the database does the math, not the browser.
     const { data, error } = await supabase.rpc('get_platform_stats');
 
     if (error) throw error;
@@ -247,7 +245,6 @@ export const getPlatformStats = async (): Promise<ApiResponse> => {
     };
   } catch (e: any) {
     console.error('API Error [getPlatformStats]:', e);
-    // Return zeros on error to prevent UI crash
     return { 
         success: false, 
         error: e.message,
@@ -261,20 +258,53 @@ export const getPlatformStats = async (): Promise<ApiResponse> => {
 // ==========================================
 
 /**
- * NEW: Fetches the aggregated admin dashboard data in one secure server call.
- * Bypasses RLS to show all user balances and game stats.
+ * Fetches all necessary data for the admin dashboard in parallel.
+ * Performs client-side joining of Profiles, Wallets, and Roles to ensure data consistency.
  */
 export const getAdminDashboardData = async (): Promise<ApiResponse> => {
   try {
-    const { data, error } = await supabase.rpc('get_admin_dashboard_data');
-    if (error) throw error;
-    return { success: true, data };
+    // 1. Fetch Users, Wallets, Roles, Jackpots, Games (Parallel)
+    const [profilesRes, walletsRes, rolesRes, jackpotsRes, gamesRes] = await Promise.all([
+        supabase.from('profiles').select('*'),
+        supabase.from('wallets').select('*'),
+        supabase.from('user_roles').select('*'),
+        supabase.from('jackpots').select('*'),
+        supabase.from('games').select('id, tier, status, wager_amount, created_at, white_player_id, winner_id').order('created_at', { ascending: true })
+    ]);
+
+    const profiles = profilesRes.data || [];
+    const wallets = walletsRes.data || [];
+    const roles = rolesRes.data || [];
+    const jackpots = jackpotsRes.data || [];
+    const games = gamesRes.data || [];
+
+    // 2. Efficient User Data Merging using Maps
+    const walletMap = new Map();
+    wallets.forEach(w => walletMap.set(w.user_id, Number(w.balance)));
+
+    const roleMap = new Map();
+    roles.forEach(r => roleMap.set(r.user_id, r.role));
+
+    const users = profiles.map(u => ({
+        ...u,
+        balance: walletMap.has(u.id) ? walletMap.get(u.id) : 0,
+        role: roleMap.get(u.id) ?? 'user'
+    }));
+
+    return {
+        success: true,
+        data: {
+            users,
+            jackpots,
+            games
+        }
+    };
   } catch (e: any) {
+    console.error('API Error [getAdminDashboardData]:', e);
     return { success: false, error: e.message };
   }
 };
 
-// Legacy analytics call (kept for backward compatibility if needed)
 export const getAdminAnalytics = async (days: number = 7): Promise<ApiResponse> => {
   try {
     const { data, error } = await supabase.rpc('get_admin_analytics', { report_days: days });
@@ -285,28 +315,14 @@ export const getAdminAnalytics = async (days: number = 7): Promise<ApiResponse> 
   }
 };
 
-// Legacy user fetch (This is likely restricted by RLS for non-admins)
-// Use getAdminDashboardData() instead for full lists.
+// Legacy user fetch - consider using getAdminDashboardData instead
 export const getAllUsers = async (): Promise<ApiResponse<any[]>> => {
   try {
-    const { data: profiles } = await supabase.from('profiles').select('*');
-    const { data: roles } = await supabase.from('user_roles').select('user_id, role');
-    const { data: wallets } = await supabase.from('wallets').select('*');
-
-    if (!profiles) return { success: true, data: [] };
-
-    const mergedUsers = profiles.map(profile => {
-        const userRoleEntry = roles?.find(r => r.user_id === profile.id);
-        const userWallet = wallets?.find(w => w.user_id === profile.id);
-        return {
-            ...profile,
-            role: userRoleEntry ? userRoleEntry.role : 'user',
-            balance: userWallet ? userWallet.balance : 0,
-            wallet_id: userWallet ? userWallet.id : null
-        };
-    });
-
-    return { success: true, data: mergedUsers };
+    const res = await getAdminDashboardData();
+    if (res.success && res.data) {
+        return { success: true, data: res.data.users };
+    }
+    throw new Error(res.error);
   } catch (e: any) {
     console.error('API Error [getAllUsers]:', e);
     return { success: false, error: e.message };

@@ -6,7 +6,7 @@ import { Board } from '../components/game/Board';
 import { evaluatePosition } from '../lib/engine';
 import { TierLevel } from '../types';
 import { TIERS } from '../constants';
-import { supabase } from '../lib/supabase';
+import * as api from '../lib/api';
 import { 
   ShieldAlert, Users, Activity, Terminal, 
   Search, Cpu, LayoutDashboard, Coins, 
@@ -60,130 +60,100 @@ export const AdminDashboard: React.FC = () => {
 
     const fetchData = async () => {
         try {
-            // 1. Fetch Users, Wallets, Roles, Jackpots (Parallel)
-            const [profilesRes, walletsRes, rolesRes, jackpotsRes] = await Promise.all([
-                supabase.from('profiles').select('*'),
-                supabase.from('wallets').select('*'),
-                supabase.from('user_roles').select('*'),
-                supabase.from('jackpots').select('*')
-            ]);
+            // Use Centralized API
+            const response = await api.getAdminDashboardData();
 
-            const profiles = profilesRes.data || [];
-            const wallets = walletsRes.data || [];
-            const roles = rolesRes.data || [];
-            const jackpots = jackpotsRes.data || [];
+            if (response.success && response.data) {
+                const { users, jackpots, games } = response.data;
+                
+                // 1. Update User List
+                setUserList(users);
 
-            // 2. Efficient Data Merging using Maps
-            const walletMap = new Map();
-            wallets.forEach(w => {
-                // Ensure balance is treated as a number
-                walletMap.set(w.user_id, Number(w.balance));
-            });
+                // 2. Calculate Current Active Jackpot Total (Strictly Tier 2 + Tier 3)
+                const activeJackpotTotal = jackpots
+                    .filter((j: any) => j.tier === 'TIER_2' || j.tier === 'TIER_3')
+                    .reduce((sum: number, j: any) => sum + (Number(j.amount) || 0), 0);
 
-            const roleMap = new Map();
-            roles.forEach(r => {
-                roleMap.set(r.user_id, r.role);
-            });
+                // 3. Process Games for Charts/Financials
+                if (games) {
+                    const completedGames = games.filter((g: any) => g.status === 'completed');
 
-            const mergedUsers = profiles.map(u => ({
-                ...u,
-                // Direct lookup from wallet table data
-                balance: walletMap.has(u.id) ? walletMap.get(u.id) : 0,
-                role: roleMap.get(u.id) ?? 'user'
-            }));
-            
-            setUserList(mergedUsers);
+                    // Financials (Last 7 Days)
+                    const sevenDaysAgo = new Date();
+                    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+                    const sevenDaysTime = sevenDaysAgo.getTime();
 
-            // 3. Calculate Current Active Jackpot Total (Strictly Tier 2 + Tier 3)
-            const activeJackpotTotal = jackpots
-                .filter(j => j.tier === 'TIER_2' || j.tier === 'TIER_3')
-                .reduce((sum, j) => sum + (Number(j.amount) || 0), 0);
+                    const recentCompleted = completedGames.filter((g: any) => new Date(g.created_at).getTime() >= sevenDaysTime);
+                    const tier2Recent = recentCompleted.filter((g: any) => g.tier === 'TIER_2');
+                    const tier3Recent = recentCompleted.filter((g: any) => g.tier === 'TIER_3');
 
-            // 4. Fetch ALL Completed Games for Charts/Financials
-            const { data: allGames } = await supabase
-                .from('games')
-                .select('id, tier, status, wager_amount, created_at, white_player_id, winner_id')
-                .order('created_at', { ascending: true });
+                    const t2Profit = tier2Recent.length * 0.19;
+                    const t3Profit = tier3Recent.length * 0.94;
 
-            if (allGames) {
-                const completedGames = allGames.filter(g => g.status === 'completed');
+                    setFinancials({
+                        tier2Count7d: tier2Recent.length,
+                        tier3Count7d: tier3Recent.length,
+                        tier2Earnings7d: t2Profit,
+                        tier3Earnings7d: t3Profit,
+                        totalEarnings7d: t2Profit + t3Profit
+                    });
 
-                // Financials (Last 7 Days)
-                const sevenDaysAgo = new Date();
-                sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-                const sevenDaysTime = sevenDaysAgo.getTime();
+                    // Analytics Charts
+                    const dailyStats = new Map<string, { date: string, games: number, visitors: Set<string> }>();
+                    for (let i=6; i>=0; i--) {
+                        const d = new Date();
+                        d.setDate(d.getDate() - i);
+                        const dateStr = d.toISOString().split('T')[0].substring(5); // MM-DD
+                        dailyStats.set(dateStr, { date: dateStr, games: 0, visitors: new Set() });
+                    }
 
-                const recentCompleted = completedGames.filter(g => new Date(g.created_at).getTime() >= sevenDaysTime);
-                const tier2Recent = recentCompleted.filter(g => g.tier === 'TIER_2');
-                const tier3Recent = recentCompleted.filter(g => g.tier === 'TIER_3');
-
-                const t2Profit = tier2Recent.length * 0.19;
-                const t3Profit = tier3Recent.length * 0.94;
-
-                setFinancials({
-                    tier2Count7d: tier2Recent.length,
-                    tier3Count7d: tier3Recent.length,
-                    tier2Earnings7d: t2Profit,
-                    tier3Earnings7d: t3Profit,
-                    totalEarnings7d: t2Profit + t3Profit
-                });
-
-                // Analytics Charts
-                const dailyStats = new Map<string, { date: string, games: number, visitors: Set<string> }>();
-                for (let i=6; i>=0; i--) {
-                    const d = new Date();
-                    d.setDate(d.getDate() - i);
-                    const dateStr = d.toISOString().split('T')[0].substring(5); // MM-DD
-                    dailyStats.set(dateStr, { date: dateStr, games: 0, visitors: new Set() });
-                }
-
-                allGames.forEach(g => {
-                     const gTime = new Date(g.created_at).getTime();
-                     if (gTime >= sevenDaysTime) {
-                        const dateStr = new Date(g.created_at).toISOString().split('T')[0].substring(5);
-                        if (dailyStats.has(dateStr)) {
-                            const entry = dailyStats.get(dateStr)!;
-                            entry.games += 1;
-                            if (g.white_player_id) entry.visitors.add(g.white_player_id);
+                    games.forEach((g: any) => {
+                        const gTime = new Date(g.created_at).getTime();
+                        if (gTime >= sevenDaysTime) {
+                            const dateStr = new Date(g.created_at).toISOString().split('T')[0].substring(5);
+                            if (dailyStats.has(dateStr)) {
+                                const entry = dailyStats.get(dateStr)!;
+                                entry.games += 1;
+                                if (g.white_player_id) entry.visitors.add(g.white_player_id);
+                            }
                         }
-                     }
-                });
+                    });
 
-                const chartData = Array.from(dailyStats.values()).map(d => ({
-                    date: d.date,
-                    visitors: d.visitors.size,
-                    games: d.games
-                }));
+                    const chartData = Array.from(dailyStats.values()).map(d => ({
+                        date: d.date,
+                        visitors: d.visitors.size,
+                        games: d.games
+                    }));
 
-                const activityLog = [...allGames].reverse().slice(0, 50).map(g => {
-                    const player = mergedUsers.find(u => u.id === g.white_player_id);
-                    return {
-                        id: g.id,
-                        created_at: g.created_at,
-                        username: player?.username || 'Unknown',
-                        user_id: g.white_player_id,
-                        tier: g.tier,
-                        status: g.status,
-                        wager: g.wager_amount,
-                        winner_id: g.winner_id
-                    };
-                });
+                    const activityLog = [...games].reverse().slice(0, 50).map((g: any) => {
+                        const player = users.find((u: any) => u.id === g.white_player_id);
+                        return {
+                            id: g.id,
+                            created_at: g.created_at,
+                            username: player?.username || 'Unknown',
+                            user_id: g.white_player_id,
+                            tier: g.tier,
+                            status: g.status,
+                            wager: g.wager_amount,
+                            winner_id: g.winner_id
+                        };
+                    });
 
-                const todayStr = new Date().toISOString().split('T')[0].substring(5);
+                    const todayStr = new Date().toISOString().split('T')[0].substring(5);
 
-                setAnalyticsData({
-                    traffic: chartData,
-                    tiers: [
-                        { name: 'Free (T1)', value: allGames.filter(g => g.tier === 'TIER_1').length },
-                        { name: 'Starter (T2)', value: allGames.filter(g => g.tier === 'TIER_2').length },
-                        { name: 'World (T3)', value: allGames.filter(g => g.tier === 'TIER_3').length },
-                    ],
-                    userActivity: activityLog,
-                    totalVolume: activeJackpotTotal, 
-                    activeUsers24h: dailyStats.get(todayStr)?.visitors.size || 0
-                });
+                    setAnalyticsData({
+                        traffic: chartData,
+                        tiers: [
+                            { name: 'Free (T1)', value: games.filter((g: any) => g.tier === 'TIER_1').length },
+                            { name: 'Starter (T2)', value: games.filter((g: any) => g.tier === 'TIER_2').length },
+                            { name: 'World (T3)', value: games.filter((g: any) => g.tier === 'TIER_3').length },
+                        ],
+                        userActivity: activityLog,
+                        totalVolume: activeJackpotTotal, 
+                        activeUsers24h: dailyStats.get(todayStr)?.visitors.size || 0
+                    });
+                }
             }
-
         } catch (e) {
             console.error("Admin Dashboard Data Fetch Error:", e);
         }
