@@ -231,54 +231,29 @@ export const getJackpots = async (): Promise<ApiResponse<Record<string, number>>
 
 export const getPlatformStats = async (): Promise<ApiResponse> => {
   try {
-    const [
-        { count: activeCount }, 
-        { count: userCount }, 
-        { count: completedCount },
-    ] = await Promise.all([
-        supabase.from('games').select('*', { count: 'exact', head: true }).eq('status', 'active'),
-        supabase.from('user_roles').select('*', { count: 'exact', head: true }).eq('role', 'user'),
-        supabase.from('games').select('*', { count: 'exact', head: true }).eq('status', 'completed')
-    ]);
+    // Call the secure database function (RPC)
+    // This is instant because the database does the math, not the browser.
+    const { data, error } = await supabase.rpc('get_platform_stats');
 
-    // Calculate Volume (Paginated to handle large datasets)
-    let totalVolume = 0;
-    let page = 0;
-    let hasMore = true;
-    const pageSize = 1000;
-    const MAX_PAGES = 5; // Limit to prevent browser lockup on massive datasets
-
-    while (hasMore && page < MAX_PAGES) {
-        const { data, error } = await supabase
-            .from('games')
-            .select('wager_amount')
-            .eq('status', 'completed')
-            .range(page * pageSize, (page + 1) * pageSize - 1);
-
-        if (error) throw error;
-
-        if (data && data.length > 0) {
-            const chunkSum = data.reduce((sum, game) => sum + (game.wager_amount || 0), 0);
-            totalVolume += chunkSum;
-            if (data.length < pageSize) hasMore = false;
-            else page++;
-        } else {
-            hasMore = false;
-        }
-    }
+    if (error) throw error;
 
     return {
       success: true,
       data: {
-        activeGames: activeCount || 0,
-        totalAccounts: userCount || 0,
-        totalGamesPlayed: completedCount || 0,
-        totalPayout: totalVolume
+        activeGames: Number(data.activeGames) || 0,
+        totalAccounts: Number(data.totalAccounts) || 0,
+        totalGamesPlayed: Number(data.totalGamesPlayed) || 0,
+        totalPayout: Number(data.totalPayout) || 0
       }
     };
   } catch (e: any) {
     console.error('API Error [getPlatformStats]:', e);
-    return { success: false, error: e.message };
+    // Return zeros on error to prevent UI crash
+    return { 
+        success: false, 
+        error: e.message,
+        data: { activeGames: 0, totalAccounts: 0, totalGamesPlayed: 0, totalPayout: 0 }
+    };
   }
 };
 
