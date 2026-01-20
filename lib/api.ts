@@ -170,6 +170,7 @@ export const makeMove = async (gameId: string, from: string, to: string, promoti
     const { data, error } = await supabase.functions.invoke('make-move', {
       body: { 
         gameId, 
+        action: 'move', // Explicit action for router in Edge Function
         moveFrom: from, 
         moveTo: to,
         promotion 

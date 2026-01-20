@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { Chess } from 'chess.js';
 import { supabase } from '../lib/supabase';
 import { Board } from '../components/game/Board';
@@ -14,10 +14,10 @@ import { TierConfig, TierLevel } from '../types';
 const useInternalToast = () => {
   const [notification, setNotification] = useState<{title: string, desc: string, type: 'info' | 'error'} | null>(null);
   
-  const toast = ({ title, description, variant }: { title: string, description: string, variant?: 'destructive' | 'default' }) => {
+  const toast = useCallback(({ title, description, variant }: { title: string, description: string, variant?: 'destructive' | 'default' }) => {
      setNotification({ title, desc: description, type: variant === 'destructive' ? 'error' : 'info' });
      setTimeout(() => setNotification(null), 3000);
-  };
+  }, []);
   
   return { toast, notification };
 };
@@ -152,7 +152,7 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
     fetchGame();
 
     return () => { isMounted = false; };
-  }, [gameId]);
+  }, [gameId, toast]);
 
   // 2. Countdown Logic
   useEffect(() => {
@@ -166,7 +166,7 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
         setCountdown(null);
         toast({ title: "START", description: "Protocol Engaged." });
     }
-  }, [countdown]);
+  }, [countdown, toast]);
 
   // 3. Timer Logic
   useEffect(() => {
@@ -291,10 +291,11 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, []);
 
-  // 6. Make Move
-  const onDrop = async (sourceSquare: string, targetSquare: string) => {
-    if (!isGameActive) return;
-
+  // 6. Make Move - Memoized to prevent Board re-renders on timer tick
+  const onDrop = useCallback(async (sourceSquare: string, targetSquare: string) => {
+    // NOTE: We don't need to check !isGameActive here anymore because the Board 
+    // component controls interaction via Chessground configuration.
+    
     const prevPgn = game.pgn();
     const prevFen = game.fen();
 
@@ -319,6 +320,7 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
       const { data, error } = await supabase.functions.invoke('make-move', {
         body: {
           gameId: gameId,
+          action: 'move', // Explicit action provided for Edge Function routing
           moveFrom: sourceSquare,
           moveTo: targetSquare,
           promotion: 'q'
@@ -362,7 +364,7 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
       setGame(revertGame);
       toast({ variant: "destructive", title: "Action Voided", description: e.message });
     }
-  };
+  }, [game, gameId, tierConfig, toast]); // isGameActive removed from dependency to prevent recreation mid-game
 
   // 7. Handle Forfeit / Cancel
   const handleExitAction = () => {
@@ -583,6 +585,7 @@ export const PlayPaid = ({ gameId, onExit }: { gameId: string, onExit: () => voi
                             fen={game.fen()} 
                             onMove={onDrop} 
                             orientation="white"
+                            isInteractive={isGameActive} // Pass active state directly to Board
                         />
                     </div>
                 </Card>

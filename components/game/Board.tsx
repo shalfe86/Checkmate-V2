@@ -12,9 +12,10 @@ interface BoardProps {
   fen?: string;
   onMove?: (from: string, to: string) => void;
   orientation?: 'white' | 'black';
+  isInteractive?: boolean;
 }
 
-export const Board = memo<BoardProps>(({ className, fen, onMove, orientation }) => {
+export const Board = memo<BoardProps>(({ className, fen, onMove, orientation, isInteractive = true }) => {
   // We try to access context safely. If it's undefined (e.g. used in PlayPaid without provider), we fallback to props.
   const context = useContext(GameContext);
   const hasContext = context !== undefined;
@@ -42,7 +43,7 @@ export const Board = memo<BoardProps>(({ className, fen, onMove, orientation }) 
         orientation: currentOrientation,
         coordinates: true,
         movable: {
-          color: currentOrientation, // Only allow moving own pieces
+          color: isInteractive ? currentOrientation : undefined, // Control interactivity here
           free: false,
           dests: toDests(currentFen),
           events: {
@@ -75,14 +76,15 @@ export const Board = memo<BoardProps>(({ className, fen, onMove, orientation }) 
       apiRef.current.set({
         fen: currentFen,
         turnColor: turnColor,
+        viewOnly: !isInteractive, 
         movable: {
-          // Only allow moving pieces of the player's color, regardless of turn
-          color: currentOrientation,
+          // Only allow moving if interactive AND it's player's pieces
+          color: isInteractive ? currentOrientation : undefined,
           dests: toDests(currentFen),
         }
       });
     }
-  }, [currentFen, currentOrientation]);
+  }, [currentFen, currentOrientation, isInteractive]);
 
   const containerClass = className || "w-[80vw] h-[80vw] md:w-[600px] md:h-[600px]";
 
@@ -99,8 +101,10 @@ export const Board = memo<BoardProps>(({ className, fen, onMove, orientation }) 
   );
 }, (prevProps, nextProps) => {
     // Custom comparison function
-    // Only re-render if FEN or Orientation changes. Ignore everything else.
-    return prevProps.fen === nextProps.fen && prevProps.orientation === nextProps.orientation;
+    return prevProps.fen === nextProps.fen && 
+           prevProps.orientation === nextProps.orientation &&
+           prevProps.onMove === nextProps.onMove &&
+           prevProps.isInteractive === nextProps.isInteractive;
 });
 
 // Helper function to calculate legal moves for Chessground
