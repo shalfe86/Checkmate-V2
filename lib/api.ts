@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import { TierLevel, UserProfile, Wallet } from '../types';
+import { TierLevel, UserProfile, Wallet, GameRecord, JackpotPayout } from '../types';
 
 export interface ApiResponse<T = any> {
   success: boolean;
@@ -13,7 +13,7 @@ export interface ApiResponse<T = any> {
 
 export const getUserProfile = async (userId: string): Promise<ApiResponse<UserProfile>> => {
   try {
-    // Fetch basic profile
+    // 1. Fetch basic profile
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
       .select('*')
@@ -22,10 +22,17 @@ export const getUserProfile = async (userId: string): Promise<ApiResponse<UserPr
 
     if (profileError) throw profileError;
 
-    // Fetch role separately (safer if roles table is strict)
+    // 2. Fetch role
     const { data: roleData } = await supabase
       .from('user_roles')
       .select('role')
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    // 3. Fetch compliance status (banned/flagged)
+    const { data: complianceData } = await supabase
+      .from('user_compliance')
+      .select('is_banned')
       .eq('user_id', userId)
       .maybeSingle();
 
@@ -33,7 +40,8 @@ export const getUserProfile = async (userId: string): Promise<ApiResponse<UserPr
       success: true,
       data: {
         ...profile,
-        role: roleData?.role ?? 'user'
+        role: roleData?.role ?? 'user',
+        is_banned: complianceData?.is_banned ?? false
       }
     };
   } catch (e: any) {
@@ -63,16 +71,30 @@ export const logDailyVisit = async (userId: string): Promise<ApiResponse> => {
   try {
     const { error } = await supabase
       .from('user_daily_visits')
-      .insert({ user_id: userId }, { count: 'exact' });
+      .insert({ user_id: userId, visit_date: new Date().toISOString() });
       
-    // Ignore duplicate key errors (PGRST116 or 23505) as that's expected behavior for unique constraints
+    // Ignore duplicate key errors (PGRST116 or 23505)
     if (error && error.code !== '23505') throw error;
 
     return { success: true };
   } catch (e: any) {
-    // Silent fail for analytics is acceptable
     return { success: false, error: e.message };
   }
+};
+
+export const getUserPayouts = async (userId: string): Promise<ApiResponse<JackpotPayout[]>> => {
+    try {
+        const { data, error } = await supabase
+            .from('jackpot_payouts')
+            .select('*')
+            .eq('user_id', userId)
+            .order('created_at', { ascending: false });
+
+        if (error) throw error;
+        return { success: true, data: data || [] };
+    } catch (e: any) {
+        return { success: false, error: e.message };
+    }
 };
 
 // ==========================================
@@ -102,7 +124,7 @@ export const createGame = async (userId: string, tier: TierLevel, wager: number)
   }
 };
 
-export const getGame = async (gameId: string): Promise<ApiResponse> => {
+export const getGame = async (gameId: string): Promise<ApiResponse<GameRecord>> => {
   try {
     const { data, error } = await supabase
       .from('games')
@@ -117,7 +139,7 @@ export const getGame = async (gameId: string): Promise<ApiResponse> => {
   }
 };
 
-export const getUserGames = async (userId: string): Promise<ApiResponse<any[]>> => {
+export const getUserGames = async (userId: string): Promise<ApiResponse<GameRecord[]>> => {
   try {
     let allGames: any[] = [];
     let page = 0;
@@ -127,7 +149,7 @@ export const getUserGames = async (userId: string): Promise<ApiResponse<any[]>> 
     while (hasMore) {
         const { data, error } = await supabase
             .from('games')
-            .select('winner_id, status, created_at, tier, wager_amount')
+            .select('*')
             .or(`white_player_id.eq.${userId},black_player_id.eq.${userId}`)
             .order('created_at', { ascending: false })
             .range(page * pageSize, (page + 1) * pageSize - 1);
@@ -169,7 +191,7 @@ export const makeMove = async (gameId: string, from: string, to: string, promoti
     const { data, error } = await supabase.functions.invoke('make-move', {
       body: { 
         gameId, 
-        action: 'move', // Explicit action for router in Edge Function
+        action: 'move',
         moveFrom: from, 
         moveTo: to,
         promotion 
@@ -244,7 +266,7 @@ export const getPlatformStats = async (): Promise<ApiResponse> => {
       }
     };
   } catch (e: any) {
-    console.error('API Error [getPlatformStats]:', e);
+    // Return zeros on failure
     return { 
         success: false, 
         error: e.message,
@@ -278,18 +300,28 @@ export const getAdminDashboardData = async (): Promise<ApiResponse> => {
     const jackpots = jackpotsRes.data || [];
     const games = gamesRes.data || [];
 
-    // 2. Efficient User Data Merging using Maps
+    // 2. Efficient Data Merging using Maps
+    // Using user_id for wallets and roles as per new schema
     const walletMap = new Map();
-    wallets.forEach(w => walletMap.set(w.user_id, Number(w.balance)));
+    wallets.forEach((w: any) => {
+        // New schema: wallets.user_id is the key
+        walletMap.set(w.user_id, Number(w.balance));
+    });
 
     const roleMap = new Map();
-    roles.forEach(r => roleMap.set(r.user_id, r.role));
+    roles.forEach((r: any) => {
+        // New schema: user_roles.user_id is the key
+        roleMap.set(r.user_id, r.role);
+    });
 
-    const users = profiles.map(u => ({
-        ...u,
-        balance: walletMap.has(u.id) ? walletMap.get(u.id) : 0,
-        role: roleMap.get(u.id) ?? 'user'
-    }));
+    const users = profiles.map((u: any) => {
+        // Profiles primary key is id
+        return {
+            ...u,
+            balance: walletMap.has(u.id) ? walletMap.get(u.id) : 0,
+            role: roleMap.has(u.id) ? roleMap.get(u.id) : 'user'
+        };
+    });
 
     return {
         success: true,
@@ -315,7 +347,7 @@ export const getAdminAnalytics = async (days: number = 7): Promise<ApiResponse> 
   }
 };
 
-// Legacy user fetch - consider using getAdminDashboardData instead
+// Legacy user fetch
 export const getAllUsers = async (): Promise<ApiResponse<any[]>> => {
   try {
     const res = await getAdminDashboardData();

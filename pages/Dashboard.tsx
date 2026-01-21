@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useGame } from '../context/GameContext';
 import { TIERS } from '../constants';
-import { TierLevel } from '../types';
+import { TierLevel, JackpotPayout } from '../types';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Modal } from '../components/ui/Modal';
@@ -15,12 +15,6 @@ import {
 export const Dashboard: React.FC = () => {
   const { user, profile, wallet, selectTier, enterGame, setView, refreshWallet } = useGame();
   
-  // Monthly Cap Logic
-  const MONTHLY_CAP = 500;
-  const currentEarnings = wallet?.monthly_earnings || 0;
-  const earningsPercentage = Math.min((currentEarnings / MONTHLY_CAP) * 100, 100);
-  const isTier2Eligible = currentEarnings < MONTHLY_CAP;
-
   // Real User Stats State
   const [stats, setStats] = useState({
     totalMatches: 0,
@@ -29,6 +23,9 @@ export const Dashboard: React.FC = () => {
     streak: 0,
     winRate: 0
   });
+
+  // Monthly Earnings State (Calculated from payouts)
+  const [monthlyEarnings, setMonthlyEarnings] = useState(0);
 
   // UI State
   const [creatingGame, setCreatingGame] = useState<TierLevel | null>(null);
@@ -44,16 +41,21 @@ export const Dashboard: React.FC = () => {
     [TierLevel.TIER_3]: 5.00
   });
 
-  // Fetch Stats & Jackpots
+  // Monthly Cap Logic
+  const MONTHLY_CAP = 500;
+  const earningsPercentage = Math.min((monthlyEarnings / MONTHLY_CAP) * 100, 100);
+  const isTier2Eligible = monthlyEarnings < MONTHLY_CAP;
+
+  // Fetch Stats, Payouts & Jackpots
   useEffect(() => {
     if (!user) return;
 
-    const fetchStats = async () => {
-        // Use API to fetch user game history
-        const result = await api.getUserGames(user.id);
+    const fetchDashboardData = async () => {
+        // 1. Fetch Game History
+        const gamesResult = await api.getUserGames(user.id);
         
-        if (result.success && result.data) {
-            const data = result.data;
+        if (gamesResult.success && gamesResult.data) {
+            const data = gamesResult.data;
             if (data.length > 0) {
                 // Filter completed games for Win Rate, but keep total for Total Matches
                 const completedGames = data.filter((g: any) => g.status === 'completed');
@@ -81,9 +83,22 @@ export const Dashboard: React.FC = () => {
                 });
             }
         }
+
+        // 2. Fetch Monthly Earnings (from Payouts)
+        const payoutsResult = await api.getUserPayouts(user.id);
+        if (payoutsResult.success && payoutsResult.data) {
+            const now = new Date();
+            const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+            
+            const currentMonthTotal = payoutsResult.data
+                .filter(p => new Date(p.created_at).getTime() >= startOfMonth)
+                .reduce((sum, p) => sum + Number(p.amount), 0);
+                
+            setMonthlyEarnings(currentMonthTotal);
+        }
     };
 
-    fetchStats();
+    fetchDashboardData();
 
     // --- LIVE JACKPOT SYNC ---
     const fetchJackpots = async () => {
@@ -224,7 +239,7 @@ export const Dashboard: React.FC = () => {
                  <div className="space-y-2">
                     <div className="flex justify-between text-xs text-slate-500 font-mono">
                        <span>Monthly Winnings</span>
-                       <span>${currentEarnings.toFixed(2)} / ${MONTHLY_CAP} Cap</span>
+                       <span>${monthlyEarnings.toFixed(2)} / ${MONTHLY_CAP} Cap</span>
                     </div>
                     <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
                        <div 

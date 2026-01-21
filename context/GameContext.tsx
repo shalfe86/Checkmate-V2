@@ -77,10 +77,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const walletResponse = await api.getUserWallet(userId);
 
       if (walletResponse.success && walletResponse.data) {
-         setWallet({
-          ...walletResponse.data,
-          monthly_earnings: walletResponse.data.monthly_earnings ?? 0
-        });
+         setWallet(walletResponse.data);
       }
     } catch (error) {
       console.error('Error fetching user data:', error);
