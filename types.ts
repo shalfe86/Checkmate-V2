@@ -22,39 +22,38 @@ export type JackpotStatus = 'pending_audit' | 'paid' | 'rejected';
 // ==========================================
 
 export interface UserProfile {
-  id: string; // PK
+  id: string;
   username: string;
   country_code?: string;
   avatar_url?: string;
   created_at?: string;
-  updated_at?: string;
-  // Joined fields (for UI convenience)
+  // Joined fields (from other tables)
   role?: AppRole; 
   balance?: number; 
   is_banned?: boolean;
 }
 
 export interface Wallet {
-  user_id: string; // PK, FK -> profiles.id
+  user_id: string;
   balance: number;
   currency: string;
   updated_at: string;
 }
 
 export interface Transaction {
-  id: string; // PK
-  user_id: string; // FK -> profiles.id
+  id: string;
+  user_id: string;
   amount: number;
   type: TransactionType;
-  status?: string;
-  reference_id?: string;
+  status?: string; // Optional if you decide to track "pending" transactions
+  reference_id?: string; // UUID of the game or payment
   description?: string;
   created_at: string;
 }
 
 export interface Withdrawal {
-  id: string; // PK
-  user_id: string; // FK -> profiles.id
+  id: string;
+  user_id: string;
   amount: number;
   status: WithdrawalStatus;
   payment_method: string;
@@ -65,7 +64,7 @@ export interface Withdrawal {
 }
 
 export interface UserCompliance {
-  user_id: string; // PK, FK -> profiles.id
+  user_id: string;
   is_banned: boolean;
   ban_reason?: string;
   last_ip_address?: string;
@@ -75,10 +74,10 @@ export interface UserCompliance {
 }
 
 export interface JackpotPayout {
-  id: string; // PK
-  user_id: string; // FK -> profiles.id
-  game_id?: string; // FK -> games.id
-  tier: TierLevel; // FK -> jackpots.tier
+  id: string;
+  user_id: string;
+  game_id?: string;
+  tier: TierLevel;
   amount: number;
   status: JackpotStatus;
   created_at: string;
@@ -123,20 +122,17 @@ export interface Move {
 
 // Matching the 'games' table
 export interface GameRecord {
-  id: string; // PK
-  white_player_id: string; // FK -> profiles.id
-  black_player_id?: string; // FK -> profiles.id
+  id: string;
+  white_player_id: string;
+  black_player_id?: string; // Nullable for AI
   status: GameStatus;
   fen: string;
   pgn: string;
-  winner_id?: string; // FK -> profiles.id
+  winner_id?: string;
   wager_amount: number;
-  is_server_game: boolean;
-  tier: TierLevel; // FK -> jackpots.tier
+  tier: TierLevel;
   end_reason?: string;
   created_at: string;
-  updated_at: string;
-  last_move_at?: string;
   white_time?: number;
   black_time?: number;
 }

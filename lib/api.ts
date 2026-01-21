@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import { TierLevel, UserProfile, Wallet, GameRecord, JackpotPayout, Transaction, UserCompliance } from '../types';
+import { TierLevel, UserProfile, Wallet, GameRecord, JackpotPayout } from '../types';
 
 export interface ApiResponse<T = any> {
   success: boolean;
@@ -29,17 +29,10 @@ export const getUserProfile = async (userId: string): Promise<ApiResponse<UserPr
       .eq('user_id', userId)
       .maybeSingle();
 
-    // 3. Fetch compliance status
+    // 3. Fetch compliance status (banned/flagged)
     const { data: complianceData } = await supabase
       .from('user_compliance')
       .select('is_banned')
-      .eq('user_id', userId)
-      .maybeSingle();
-      
-    // 4. Fetch Wallet for convenience
-    const { data: walletData } = await supabase
-      .from('wallets')
-      .select('balance')
       .eq('user_id', userId)
       .maybeSingle();
 
@@ -48,8 +41,7 @@ export const getUserProfile = async (userId: string): Promise<ApiResponse<UserPr
       data: {
         ...profile,
         role: roleData?.role ?? 'user',
-        is_banned: complianceData?.is_banned ?? false,
-        balance: walletData?.balance ?? 0
+        is_banned: complianceData?.is_banned ?? false
       }
     };
   } catch (e: any) {
@@ -75,21 +67,6 @@ export const getUserWallet = async (userId: string): Promise<ApiResponse<Wallet>
   }
 };
 
-export const getUserCompliance = async (userId: string): Promise<ApiResponse<UserCompliance>> => {
-  try {
-    const { data, error } = await supabase
-      .from('user_compliance')
-      .select('*')
-      .eq('user_id', userId)
-      .single();
-
-    if (error) throw error;
-    return { success: true, data };
-  } catch (e: any) {
-    return { success: false, error: e.message };
-  }
-};
-
 export const logDailyVisit = async (userId: string): Promise<ApiResponse> => {
   try {
     const { error } = await supabase
@@ -109,21 +86,6 @@ export const getUserPayouts = async (userId: string): Promise<ApiResponse<Jackpo
     try {
         const { data, error } = await supabase
             .from('jackpot_payouts')
-            .select('*')
-            .eq('user_id', userId)
-            .order('created_at', { ascending: false });
-
-        if (error) throw error;
-        return { success: true, data: data || [] };
-    } catch (e: any) {
-        return { success: false, error: e.message };
-    }
-};
-
-export const getUserTransactions = async (userId: string): Promise<ApiResponse<Transaction[]>> => {
-    try {
-        const { data, error } = await supabase
-            .from('transactions')
             .select('*')
             .eq('user_id', userId)
             .order('created_at', { ascending: false });
@@ -317,31 +279,19 @@ export const getPlatformStats = async (): Promise<ApiResponse> => {
 // 4. ADMIN FEATURES
 // ==========================================
 
-export interface AdminDashboardData {
-    users: UserProfile[];
-    jackpots: any[];
-    games: GameRecord[];
-    payouts: JackpotPayout[];
-}
-
 /**
  * Fetches all necessary data for the admin dashboard in parallel.
- * Performs client-side joining of Profiles, Wallets, Roles, and Compliance to ensure data consistency.
- * 
- * NOTE: This relies on RLS policies permitting the admin user to select from these tables.
- * If RLS is restrictive, this will return empty arrays for restricted tables.
+ * Performs client-side joining of Profiles, Wallets, and Roles to ensure data consistency.
  */
-export const getAdminDashboardData = async (): Promise<ApiResponse<AdminDashboardData>> => {
+export const getAdminDashboardData = async (): Promise<ApiResponse> => {
   try {
-    // 1. Fetch Users, Wallets, Roles, Jackpots, Games, Payouts, Compliance (Parallel)
-    const [profilesRes, walletsRes, rolesRes, jackpotsRes, gamesRes, payoutsRes, complianceRes] = await Promise.all([
+    // 1. Fetch Users, Wallets, Roles, Jackpots, Games (Parallel)
+    const [profilesRes, walletsRes, rolesRes, jackpotsRes, gamesRes] = await Promise.all([
         supabase.from('profiles').select('*'),
         supabase.from('wallets').select('*'),
         supabase.from('user_roles').select('*'),
         supabase.from('jackpots').select('*'),
-        supabase.from('games').select('*').order('created_at', { ascending: true }),
-        supabase.from('jackpot_payouts').select('*').order('created_at', { ascending: false }),
-        supabase.from('user_compliance').select('*')
+        supabase.from('games').select('id, tier, status, wager_amount, created_at, white_player_id, winner_id').order('created_at', { ascending: true })
     ]);
 
     const profiles = profilesRes.data || [];
@@ -349,27 +299,27 @@ export const getAdminDashboardData = async (): Promise<ApiResponse<AdminDashboar
     const roles = rolesRes.data || [];
     const jackpots = jackpotsRes.data || [];
     const games = gamesRes.data || [];
-    const payouts = payoutsRes.data || [];
-    const compliance = complianceRes.data || [];
 
     // 2. Efficient Data Merging using Maps
-    // Primary Key for joining is 'user_id' in auxiliary tables, 'id' in profiles.
-    
+    // Using user_id for wallets and roles as per new schema
     const walletMap = new Map();
-    wallets.forEach((w: any) => walletMap.set(w.user_id, Number(w.balance)));
+    wallets.forEach((w: any) => {
+        // New schema: wallets.user_id is the key
+        walletMap.set(w.user_id, Number(w.balance));
+    });
 
     const roleMap = new Map();
-    roles.forEach((r: any) => roleMap.set(r.user_id, r.role));
+    roles.forEach((r: any) => {
+        // New schema: user_roles.user_id is the key
+        roleMap.set(r.user_id, r.role);
+    });
 
-    const complianceMap = new Map();
-    compliance.forEach((c: any) => complianceMap.set(c.user_id, c.is_banned));
-
-    const users: UserProfile[] = profiles.map((u: any) => {
+    const users = profiles.map((u: any) => {
+        // Profiles primary key is id
         return {
             ...u,
             balance: walletMap.has(u.id) ? walletMap.get(u.id) : 0,
-            role: roleMap.has(u.id) ? roleMap.get(u.id) : 'user',
-            is_banned: complianceMap.has(u.id) ? complianceMap.get(u.id) : false
+            role: roleMap.has(u.id) ? roleMap.get(u.id) : 'user'
         };
     });
 
@@ -378,8 +328,7 @@ export const getAdminDashboardData = async (): Promise<ApiResponse<AdminDashboar
         data: {
             users,
             jackpots,
-            games,
-            payouts
+            games
         }
     };
   } catch (e: any) {
@@ -399,7 +348,7 @@ export const getAdminAnalytics = async (days: number = 7): Promise<ApiResponse> 
 };
 
 // Legacy user fetch
-export const getAllUsers = async (): Promise<ApiResponse<UserProfile[]>> => {
+export const getAllUsers = async (): Promise<ApiResponse<any[]>> => {
   try {
     const res = await getAdminDashboardData();
     if (res.success && res.data) {
