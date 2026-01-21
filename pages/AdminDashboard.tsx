@@ -38,10 +38,7 @@ export const AdminDashboard: React.FC = () => {
 
   // FINANCIAL STATE
   const [financials, setFinancials] = useState({
-      tier2Count7d: 0,
-      tier3Count7d: 0,
-      tier2Earnings7d: 0,
-      tier3Earnings7d: 0,
+      totalPayouts7d: 0,
       totalEarnings7d: 0,
   });
 
@@ -64,7 +61,7 @@ export const AdminDashboard: React.FC = () => {
             const response = await api.getAdminDashboardData();
 
             if (response.success && response.data) {
-                const { users, jackpots, games } = response.data;
+                const { users, jackpots, games, payouts } = response.data;
                 
                 // 1. Update User List
                 setUserList(users);
@@ -74,85 +71,82 @@ export const AdminDashboard: React.FC = () => {
                     .filter((j: any) => j.tier === 'TIER_2' || j.tier === 'TIER_3')
                     .reduce((sum: number, j: any) => sum + (Number(j.amount) || 0), 0);
 
-                // 3. Process Games for Charts/Financials
-                if (games) {
-                    const completedGames = games.filter((g: any) => g.status === 'completed');
+                // 3. Process Financials (Payouts & Estimated Earnings)
+                const sevenDaysAgo = new Date();
+                sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+                const sevenDaysTime = sevenDaysAgo.getTime();
 
-                    // Financials (Last 7 Days)
-                    const sevenDaysAgo = new Date();
-                    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-                    const sevenDaysTime = sevenDaysAgo.getTime();
+                const recentPayouts = payouts.filter((p: any) => new Date(p.created_at).getTime() >= sevenDaysTime);
+                const totalPayouts = recentPayouts.reduce((sum: number, p: any) => sum + Number(p.amount), 0);
 
-                    const recentCompleted = completedGames.filter((g: any) => new Date(g.created_at).getTime() >= sevenDaysTime);
-                    const tier2Recent = recentCompleted.filter((g: any) => g.tier === 'TIER_2');
-                    const tier3Recent = recentCompleted.filter((g: any) => g.tier === 'TIER_3');
+                // Estimate Earnings based on completed games house edge
+                // Tier 2: $0.25 house split, Tier 3: $1.00 house split
+                const completedGames = games.filter((g: any) => g.status === 'completed' && new Date(g.created_at).getTime() >= sevenDaysTime);
+                const earnings = completedGames.reduce((sum: number, g: any) => {
+                    if (g.tier === 'TIER_2') return sum + 0.25;
+                    if (g.tier === 'TIER_3') return sum + 1.00;
+                    return sum;
+                }, 0);
 
-                    const t2Profit = tier2Recent.length * 0.19;
-                    const t3Profit = tier3Recent.length * 0.94;
+                setFinancials({
+                    totalPayouts7d: totalPayouts,
+                    totalEarnings7d: earnings
+                });
 
-                    setFinancials({
-                        tier2Count7d: tier2Recent.length,
-                        tier3Count7d: tier3Recent.length,
-                        tier2Earnings7d: t2Profit,
-                        tier3Earnings7d: t3Profit,
-                        totalEarnings7d: t2Profit + t3Profit
-                    });
-
-                    // Analytics Charts
-                    const dailyStats = new Map<string, { date: string, games: number, visitors: Set<string> }>();
-                    for (let i=6; i>=0; i--) {
-                        const d = new Date();
-                        d.setDate(d.getDate() - i);
-                        const dateStr = d.toISOString().split('T')[0].substring(5); // MM-DD
-                        dailyStats.set(dateStr, { date: dateStr, games: 0, visitors: new Set() });
-                    }
-
-                    games.forEach((g: any) => {
-                        const gTime = new Date(g.created_at).getTime();
-                        if (gTime >= sevenDaysTime) {
-                            const dateStr = new Date(g.created_at).toISOString().split('T')[0].substring(5);
-                            if (dailyStats.has(dateStr)) {
-                                const entry = dailyStats.get(dateStr)!;
-                                entry.games += 1;
-                                if (g.white_player_id) entry.visitors.add(g.white_player_id);
-                            }
-                        }
-                    });
-
-                    const chartData = Array.from(dailyStats.values()).map(d => ({
-                        date: d.date,
-                        visitors: d.visitors.size,
-                        games: d.games
-                    }));
-
-                    const activityLog = [...games].reverse().slice(0, 50).map((g: any) => {
-                        const player = users.find((u: any) => u.id === g.white_player_id);
-                        return {
-                            id: g.id,
-                            created_at: g.created_at,
-                            username: player?.username || 'Unknown',
-                            user_id: g.white_player_id,
-                            tier: g.tier,
-                            status: g.status,
-                            wager: g.wager_amount,
-                            winner_id: g.winner_id
-                        };
-                    });
-
-                    const todayStr = new Date().toISOString().split('T')[0].substring(5);
-
-                    setAnalyticsData({
-                        traffic: chartData,
-                        tiers: [
-                            { name: 'Free (T1)', value: games.filter((g: any) => g.tier === 'TIER_1').length },
-                            { name: 'Starter (T2)', value: games.filter((g: any) => g.tier === 'TIER_2').length },
-                            { name: 'World (T3)', value: games.filter((g: any) => g.tier === 'TIER_3').length },
-                        ],
-                        userActivity: activityLog,
-                        totalVolume: activeJackpotTotal, 
-                        activeUsers24h: dailyStats.get(todayStr)?.visitors.size || 0
-                    });
+                // 4. Analytics Charts
+                const dailyStats = new Map<string, { date: string, games: number, visitors: Set<string> }>();
+                for (let i=6; i>=0; i--) {
+                    const d = new Date();
+                    d.setDate(d.getDate() - i);
+                    const dateStr = d.toISOString().split('T')[0].substring(5); // MM-DD
+                    dailyStats.set(dateStr, { date: dateStr, games: 0, visitors: new Set() });
                 }
+
+                games.forEach((g: any) => {
+                    const gTime = new Date(g.created_at).getTime();
+                    if (gTime >= sevenDaysTime) {
+                        const dateStr = new Date(g.created_at).toISOString().split('T')[0].substring(5);
+                        if (dailyStats.has(dateStr)) {
+                            const entry = dailyStats.get(dateStr)!;
+                            entry.games += 1;
+                            if (g.white_player_id) entry.visitors.add(g.white_player_id);
+                        }
+                    }
+                });
+
+                const chartData = Array.from(dailyStats.values()).map(d => ({
+                    date: d.date,
+                    visitors: d.visitors.size,
+                    games: d.games
+                }));
+
+                const activityLog = [...games].reverse().slice(0, 50).map((g: any) => {
+                    const player = users.find((u: any) => u.id === g.white_player_id);
+                    return {
+                        id: g.id,
+                        created_at: g.created_at,
+                        username: player?.username || 'Unknown',
+                        user_id: g.white_player_id,
+                        tier: g.tier,
+                        status: g.status,
+                        wager: g.wager_amount,
+                        winner_id: g.winner_id
+                    };
+                });
+
+                const todayStr = new Date().toISOString().split('T')[0].substring(5);
+
+                setAnalyticsData({
+                    traffic: chartData,
+                    tiers: [
+                        { name: 'Free (T1)', value: games.filter((g: any) => g.tier === 'TIER_1').length },
+                        { name: 'Starter (T2)', value: games.filter((g: any) => g.tier === 'TIER_2').length },
+                        { name: 'World (T3)', value: games.filter((g: any) => g.tier === 'TIER_3').length },
+                    ],
+                    userActivity: activityLog,
+                    totalVolume: activeJackpotTotal, 
+                    activeUsers24h: dailyStats.get(todayStr)?.visitors.size || 0
+                });
             }
         } catch (e) {
             console.error("Admin Dashboard Data Fetch Error:", e);
@@ -226,16 +220,12 @@ export const AdminDashboard: React.FC = () => {
                  <Coins size={64} />
              </div>
              <div className="relative z-10">
-                 <div className="text-xs text-green-400 uppercase font-mono mb-1 font-bold">Est. Net Profit (7 Days)</div>
+                 <div className="text-xs text-green-400 uppercase font-mono mb-1 font-bold">House Earnings (7 Days)</div>
                  <div className="text-4xl font-bold text-white font-orbitron">${financials.totalEarnings7d.toFixed(2)}</div>
                  <div className="mt-3 text-[10px] text-slate-400 space-y-1">
                     <div className="flex justify-between">
-                        <span>Tier 2 ({financials.tier2Count7d}):</span>
-                        <span className="text-green-400">+${financials.tier2Earnings7d.toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between">
-                        <span>Tier 3 ({financials.tier3Count7d}):</span>
-                        <span className="text-green-400">+${financials.tier3Earnings7d.toFixed(2)}</span>
+                        <span>Total Payouts Sent:</span>
+                        <span className="text-red-400">-${financials.totalPayouts7d.toFixed(2)}</span>
                     </div>
                  </div>
              </div>
@@ -355,7 +345,7 @@ export const AdminDashboard: React.FC = () => {
                         <th className="p-4">User</th>
                         <th className="p-4">Role</th>
                         <th className="p-4">Balance</th>
-                        <th className="p-4">Joined</th>
+                        <th className="p-4">Status</th>
                         <th className="p-4 text-right">ID</th>
                      </tr>
                   </thead>
@@ -376,8 +366,12 @@ export const AdminDashboard: React.FC = () => {
                            <td className="p-4 font-mono text-green-400 font-bold">
                                {typeof u.balance === 'number' ? `$${u.balance.toFixed(2)}` : <span className="text-slate-700">--</span>}
                            </td>
-                           <td className="p-4 text-slate-400">
-                              {u.created_at ? new Date(u.created_at).toLocaleDateString() : 'N/A'}
+                           <td className="p-4">
+                              {u.is_banned ? (
+                                  <span className="text-red-500 font-bold text-[10px] flex items-center gap-1"><ShieldAlert size={10} /> BANNED</span>
+                              ) : (
+                                  <span className="text-green-500 text-[10px]">Active</span>
+                              )}
                            </td>
                            <td className="p-4 text-right text-slate-600 font-mono text-[10px]">
                               {u.id.substring(0,8)}...
